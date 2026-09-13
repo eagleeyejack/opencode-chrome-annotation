@@ -286,6 +286,13 @@ function json(res: any, statusCode: number, body: any, origin?: string): void {
   res.end(JSON.stringify(body));
 }
 
+function allowedCorsOrigin(req: any): string | null {
+  const origin = req.headers?.origin;
+  if (typeof origin !== "string" || !origin) return null;
+  if (/^chrome-extension:\/\//.test(origin) || /^moz-extension:\/\//.test(origin)) return origin;
+  return null;
+}
+
 async function readJsonBody(req: any): Promise<any> {
   return await new Promise((resolve, reject) => {
     let data = "";
@@ -420,7 +427,7 @@ async function startServer(): Promise<void> {
 
   for (let port = PORT_START; port <= PORT_END; port++) {
     const server = createServer(async (req, res) => {
-      const origin = typeof req.headers.origin === "string" ? req.headers.origin : "*";
+      const origin = allowedCorsOrigin(req) || undefined;
       if (req.method === "OPTIONS") {
         json(res, 200, { ok: true }, origin);
         return;
