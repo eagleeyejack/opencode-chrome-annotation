@@ -319,6 +319,10 @@ function listClaims(): Array<Record<string, any>> {
 }
 
 async function queueAnnotationPrompt(sessionId: string, annotation: any): Promise<void> {
+  if (typeof sessionId === "string" && sessionId.startsWith(INSTANCE_SESSION_PREFIX)) {
+    setLastAnnotationStatus({ ok: false, sessionId, error: "Tab is linked to a placeholder session, not a real chat" });
+    throw new Error("This tab is linked to a placeholder session, not a real chat. Reconnect and pick a specific chat.");
+  }
   if (!pluginClient) {
     setLastAnnotationStatus({ ok: false, sessionId, error: "No OpenCode client is available" });
     throw new Error("No OpenCode client is available");
@@ -460,6 +464,9 @@ async function startServer(): Promise<void> {
           const extensionVersion = body?.extensionVersion;
           if (!Number.isFinite(tabId)) throw new Error("tabId is required");
           if (typeof sessionId !== "string" || !sessionId) throw new Error("sessionId is required");
+          if (sessionId.startsWith(INSTANCE_SESSION_PREFIX)) {
+            throw new Error("Cannot link to the placeholder session. Restart OpenCode in your project and pick a real chat.");
+          }
           await ensureSessionTitle(sessionId);
           rememberClaim(Number(tabId), sessionId, extensionVersion);
           json(res, 200, { ok: true, sessionId }, origin);
