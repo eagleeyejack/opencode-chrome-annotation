@@ -5,21 +5,41 @@
 
 Annotate any page in Chrome and send the screenshot, selected element metadata, and your instruction directly into [OpenCode](https://opencode.ai).
 
-https://github.com/user-attachments/assets/bdee8a15-6720-4e57-b28d-ee6440722b71
+> **This is a fork** of [jodusnodus/opencode-chrome-annotation](https://github.com/jodusnodus/opencode-chrome-annotation) with quality-of-life and routing changes described below. The upstream npm package and Chrome Web Store listing serve the original; this repo's `main` is self-contained and not published to npm.
 
+## What's different in this fork
 
-## Install
+- **Annotation queue.** Pick mode stays on after each annotation so you can batch feedback, then send everything in one click. The connection bar shows a queue badge with a panel to review, remove, clear, or send all. The queue survives service worker restarts (`chrome.storage.session`).
+- **Element screenshots.** Each queued annotation crops the captured viewport to the selected element instead of shipping the full page.
+- **Chat locking.** Annotations now go to the chat you picked, always. Sub-agent sessions can no longer hijack routing, placeholder sessions are rejected with a clear message instead of silently rerouting, and prompts are delivered to the target session's own project directory.
+- **All chats, grouped.** The picker lists every open chat (not just the most recent one), grouped under project headers, with a Linked badge and a refresh button. The bar shows which chat you are linked to; clicking its name switches chats.
+- **Security.** The local server no longer reflects arbitrary web origins into `Access-Control-Allow-Origin`, so random web pages cannot read your chat titles over the localhost port.
+- **Robustness and restyle.** 10s timeout on screenshot capture (it can hang when a tab navigates mid-annotation), and a white/black/pastel UI.
 
-Add the plugin to your OpenCode config:
+## Install (this fork)
+
+1. Clone and build:
+
+```bash
+git clone https://github.com/eagleeyejack/opencode-chrome-annotation
+cd opencode-chrome-annotation
+bun install
+bun run build
+bun run build:extension
+```
+
+2. Point your OpenCode config at the built plugin (absolute path to `dist/plugin.js`):
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-chrome-annotation@latest"]
+  "plugin": ["/path/to/opencode-chrome-annotation/dist/plugin.js"]
 }
 ```
 
-Install the Chrome extension from the Chrome Web Store:
+3. Load the generated `extension/` directory unpacked from `chrome://extensions`.
+
+If you would rather run the original upstream instead: add `opencode-chrome-annotation@latest` to your OpenCode config and install the extension from the Chrome Web Store:
 
 https://chromewebstore.google.com/detail/abeihanpaeioklkhioiigklonbomhjfd
 
@@ -27,9 +47,10 @@ https://chromewebstore.google.com/detail/abeihanpaeioklkhioiigklonbomhjfd
 
 1. Start OpenCode in your project.
 2. Click the extension button in Chrome.
-3. Connect the current tab to your OpenCode session from the in-page picker.
+3. Connect the current tab to a specific OpenCode chat from the in-page picker (grouped by project, with the linked chat badged).
 4. Click **Annotate** in the in-page pill.
-5. Select an element, write your instruction, and submit.
+5. Select an element, write your instruction, then **Add to queue** (keep going) or **Add & finish**.
+6. Open the queue from the bar and hit **Send all to OpenCode** when you are done.
 
 
 ### What Gets Sent
