@@ -52,10 +52,31 @@ export type AnnotationPickerResult =
   | { cancelled: true }
   | {
       cancelled: false
+      finish: boolean
       comment: string
       element: AnnotationElement
       viewport: AnnotationViewport
     }
+
+export type AnnotationQueueEntry = {
+  id: string
+  comment: string
+  page: { url: string; title: string } | null
+  element: AnnotationElement | null
+  viewport: AnnotationViewport | null
+  screenshot: { mime: string; dataUrl: string } | null
+  createdAt: number
+}
+
+export type AnnotationQueueStore = {
+  restore(): Promise<void>
+  list(tabId: number | undefined): AnnotationQueueEntry[]
+  add(tabId: number, entry: unknown): Promise<string | null>
+  remove(tabId: number, id: string): Promise<boolean>
+  clear(tabId: number): Promise<boolean>
+  take(tabId: number): Promise<AnnotationQueueEntry[]>
+  delete(tabId: number): void
+}
 
 export type AnnotationPayload = {
   comment: string
@@ -76,6 +97,10 @@ export type ExtensionMessage =
   | { type: "connect_tab_to_session"; session: SessionInfo }
   | { type: "disconnect_tab" }
   | { type: "refresh_sessions" }
+  | { type: "show_annotation_queue" }
+  | { type: "remove_queued_annotation"; id: string }
+  | { type: "clear_queue" }
+  | { type: "send_queued_annotations" }
 
 export type InstanceStatus = {
   app?: string
