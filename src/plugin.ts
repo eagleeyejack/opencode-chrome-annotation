@@ -250,10 +250,40 @@ async function listOpenCodeSessions(): Promise<Array<{ id: string; title: string
   }
 
   try {
-    const response = await pluginClient.session.list({ query: { directory: pluginDirectory } });
-    const rows = Array.isArray(response?.data) ? response.data : Array.isArray(response) ? response : [];
+    const rows: any[] = [];
+    const seen = new Set<string>();
+    const responses: any[] = [];
+    try {
+      responses.push(await pluginClient.session.list({ query: { directory: pluginDirectory } }));
+    } catch {
+      // ignore
+    }
+    try {
+      responses.push(await pluginClient.session.list({}));
+    } catch {
+      // ignore
+    }
+    for (const response of responses) {
+      const list = Array.isArray(response?.data) ? response.data : Array.isArray(response) ? response : [];
+      for (const item of list) {
+        if (typeof item?.id === "string" && !seen.has(item.id)) {
+          seen.add(item.id);
+          rows.push(item);
+        }
+      }
+    }
+    logDebug(`sessions list dir=${pluginDirectory} rows=${rows.length}`);
+
+    const knownIds = new Set(rows.map((item: any) => item.id));
     const sessions = rows
-      .filter((item: any) => typeof item?.id === "string" && !item?.time?.archived)
+      .filter((item: any) => {
+        if (typeof item?.id !== "string" || item?.time?.archived) return false;
+        if (item?.parentID && knownIds.has(item.parentID)) {
+          subagentSessionIds.add(item.id);
+          return false;
+        }
+        return true;
+      })
       .map((item: any) => {
         const title = typeof item?.title === "string" && item.title.trim() ? item.title.trim() : `Session ${item.id.slice(0, 8)}`;
         applySessionTitle(item.id, title);
@@ -270,29 +300,21 @@ async function listOpenCodeSessions(): Promise<Array<{ id: string; title: string
 
     if (!sessions.length) return [fallbackSession()];
 
-    if (activeOpencodeSessionId) {
-      const active = sessions.find((session: { id: string }) => session.id === activeOpencodeSessionId);
-      if (active) {
-        const { updatedAt: _updatedAt, ...rest } = active;
-        return [rest];
-      }
-
+    if (activeOpencodeSessionId && !subagentSessionIds.has(activeOpencodeSessionId) && !sessions.some((session: { id: string }) => session.id === activeOpencodeSessionId)) {
       const activeTitle = sessionTitles.get(activeOpencodeSessionId);
       if (activeTitle) {
-        return [
-          {
-            id: activeOpencodeSessionId,
-            title: activeTitle,
-            directory: pluginDirectory,
-            status: "open",
-          },
-        ];
+        sessions.unshift({
+          id: activeOpencodeSessionId,
+          title: activeTitle,
+          directory: pluginDirectory,
+          status: "open",
+          updatedAt: Number.MAX_SAFE_INTEGER,
+        });
       }
     }
 
     sessions.sort((a: { updatedAt: number }, b: { updatedAt: number }) => b.updatedAt - a.updatedAt);
-    const { updatedAt: _updatedAt, ...latest } = sessions[0];
-    return [latest];
+    return sessions.map(({ updatedAt: _updatedAt, ...rest }: { updatedAt: number }) => rest);
   } catch {
     return [fallbackSession()];
   }
