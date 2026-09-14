@@ -33,6 +33,8 @@ let lastAnnotationStatus: Record<string, any> | null = null;
 let activeOpencodeSessionId: string | null = null;
 let lastExtensionVersion: string | null = null;
 const sessionTitles = new Map<string, string>();
+const subagentSessionIds = new Set<string>();
+const subagentChecks = new Map<string, boolean>();
 const claims = new Map<number, { sessionId: string; claimedAt: string; lastSeenAt: string; extensionVersion?: string }>();
 
 function fallbackSession(): { id: string; title: string; directory: string; status: string } {
@@ -207,6 +209,25 @@ function pruneStaleClaims(): void {
       claims.delete(tabId);
     }
   }
+}
+
+async function isSubagentSession(sessionId: string): Promise<boolean> {
+  if (subagentSessionIds.has(sessionId)) return true;
+  if (subagentChecks.has(sessionId)) return subagentChecks.get(sessionId) as boolean;
+  let isSubagent = false;
+  try {
+    const response = await pluginClient?.session?.get({
+      path: { id: sessionId },
+      query: { directory: pluginDirectory },
+    });
+    const info = response?.data || response;
+    isSubagent = Boolean(info?.parentID);
+  } catch {
+    // ignore
+  }
+  if (isSubagent) subagentSessionIds.add(sessionId);
+  subagentChecks.set(sessionId, isSubagent);
+  return isSubagent;
 }
 
 async function ensureSessionTitle(sessionId: string): Promise<void> {
@@ -552,7 +573,10 @@ const plugin: Plugin = async (ctx) => {
     event: async ({ event }) => {
       const info = (event as any)?.properties?.info;
       if ((event as any)?.type === "session.created" || (event as any)?.type === "session.updated") {
-        if (typeof info?.id === "string" && typeof info?.title === "string") {
+        if (typeof info?.id === "string" && info?.parentID) {
+          subagentSessionIds.add(info.id);
+        }
+        if (typeof info?.id === "string" && typeof info?.title === "string" && !info?.parentID) {
           applySessionTitle(info.id, info.title);
         }
       }
@@ -566,6 +590,7 @@ const plugin: Plugin = async (ctx) => {
     },
     "chat.message": async (input) => {
       if (!input?.sessionID) return;
+      if (await isSubagentSession(input.sessionID)) return;
       activeOpencodeSessionId = input.sessionID;
       if (sessionTitles.has(input.sessionID)) {
         pluginSessionLabel = sessionTitles.get(input.sessionID) as string;
