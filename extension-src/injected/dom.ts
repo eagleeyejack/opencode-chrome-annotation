@@ -98,7 +98,7 @@ globalThis.__opc_makeDockable = function makeDockable(overlay: HTMLElement, opti
 
 globalThis.__opc_cropDataUrl = function cropDataUrl(
   dataUrl: string,
-  rect: { x?: number; y?: number; width?: number; height?: number } | null,
+  rect: { x?: number; y?: number; left?: number; top?: number; width?: number; height?: number } | null,
   viewport: { width?: number; height?: number } | null,
   padding?: number
 ): Promise<string | null> {
