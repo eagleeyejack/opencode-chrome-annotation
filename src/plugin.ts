@@ -33,6 +33,7 @@ let lastAnnotationStatus: Record<string, any> | null = null;
 let activeOpencodeSessionId: string | null = null;
 let lastExtensionVersion: string | null = null;
 const sessionTitles = new Map<string, string>();
+const sessionDirectories = new Map<string, string | null>();
 const subagentSessionIds = new Set<string>();
 const subagentChecks = new Map<string, boolean>();
 const claims = new Map<number, { sessionId: string; claimedAt: string; lastSeenAt: string; extensionVersion?: string }>();
@@ -275,28 +276,38 @@ async function listOpenCodeSessions(): Promise<Array<{ id: string; title: string
     logDebug(`sessions list dir=${pluginDirectory} rows=${rows.length}`);
 
     const knownIds = new Set(rows.map((item: any) => item.id));
-    const sessions = rows
-      .filter((item: any) => {
-        if (typeof item?.id !== "string" || item?.time?.archived) return false;
-        if (item?.parentID && knownIds.has(item.parentID)) {
-          subagentSessionIds.add(item.id);
-          return false;
+    const sessions: Array<{ id: string; title: string; directory: string; status: string; updatedAt: number }> = [];
+    for (const item of rows) {
+      if (typeof item?.id !== "string" || item?.time?.archived) continue;
+      if (item?.parentID && knownIds.has(item.parentID)) {
+        subagentSessionIds.add(item.id);
+        continue;
+      }
+      const title = typeof item?.title === "string" && item.title.trim() ? item.title.trim() : `Session ${item.id.slice(0, 8)}`;
+      applySessionTitle(item.id, title);
+      let directory = typeof item?.directory === "string" ? item.directory : null;
+      if (!directory) {
+        if (!sessionDirectories.has(item.id) && pluginClient?.session?.get) {
+          let resolved: string | null = null;
+          try {
+            const detail = await pluginClient.session.get({
+              path: { id: item.id },
+              query: { directory: pluginDirectory },
+            });
+            const info = detail?.data || detail;
+            if (typeof info?.directory === "string") resolved = info.directory;
+          } catch {
+            // ignore
+          }
+          sessionDirectories.set(item.id, resolved);
         }
-        return true;
-      })
-      .map((item: any) => {
-        const title = typeof item?.title === "string" && item.title.trim() ? item.title.trim() : `Session ${item.id.slice(0, 8)}`;
-        applySessionTitle(item.id, title);
-        const updatedAt =
-          Number(item?.time?.updated ?? item?.time?.created ?? item?.updatedAt ?? item?.createdAt) || 0;
-        return {
-          id: item.id,
-          title,
-          directory: typeof item?.directory === "string" ? item.directory : pluginDirectory,
-          status: "open",
-          updatedAt,
-        };
-      });
+        directory = sessionDirectories.get(item.id) || pluginDirectory;
+      } else {
+        sessionDirectories.set(item.id, directory);
+      }
+      const updatedAt = Number(item?.time?.updated ?? item?.time?.created ?? item?.updatedAt ?? item?.createdAt) || 0;
+      sessions.push({ id: item.id, title, directory, status: "open", updatedAt });
+    }
 
     if (!sessions.length) return [fallbackSession()];
 
@@ -306,7 +317,7 @@ async function listOpenCodeSessions(): Promise<Array<{ id: string; title: string
         sessions.unshift({
           id: activeOpencodeSessionId,
           title: activeTitle,
-          directory: pluginDirectory,
+          directory: sessionDirectories.get(activeOpencodeSessionId) || pluginDirectory,
           status: "open",
           updatedAt: Number.MAX_SAFE_INTEGER,
         });
@@ -391,11 +402,12 @@ async function queueAnnotationPrompt(sessionId: string, annotation: any): Promis
   }
 
   const promptBody = { parts: [{ type: "text", text: promptText }] };
+  const promptDirectory = sessionDirectories.get(sessionId) || pluginDirectory;
 
   if (typeof pluginClient?.session?.promptAsync === "function") {
     const response = await pluginClient.session.promptAsync({
       path: { id: sessionId },
-      query: { directory: pluginDirectory },
+      query: { directory: promptDirectory },
       body: promptBody,
     });
     const data = unwrapClientResult(response, "session prompt");
@@ -407,7 +419,7 @@ async function queueAnnotationPrompt(sessionId: string, annotation: any): Promis
   if (typeof pluginClient?.session?.prompt === "function") {
     const response = await pluginClient.session.prompt({
       path: { id: sessionId },
-      query: { directory: pluginDirectory },
+      query: { directory: promptDirectory },
       body: promptBody,
     });
     const data = unwrapClientResult(response, "session prompt");
