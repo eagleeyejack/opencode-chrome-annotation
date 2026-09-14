@@ -9,14 +9,15 @@ function annotationPickerScript(): Promise<AnnotationPickerResult> {
 
   const STYLE = {
     root: "position:fixed;inset:0;z-index:2147483647;pointer-events:none;",
-    box: "position:fixed;border:2px solid rgba(34,197,94,0.95);background:rgba(34,197,94,0.16);box-shadow:0 0 0 1px rgba(34,197,94,0.45);pointer-events:none;",
-    panel: "position:fixed;right:16px;bottom:16px;width:320px;padding:12px;background:rgba(15,23,42,0.92);color:#bbf7d0;border:1px solid rgba(34,197,94,0.45);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.35);font:12px/1.4 ui-sans-serif,system-ui,sans-serif;pointer-events:auto;display:none;backdrop-filter:blur(8px);",
+    box: "position:fixed;border:2px solid rgba(165,180,252,0.95);background:rgba(165,180,252,0.18);box-shadow:0 0 0 1px rgba(0,0,0,0.12);pointer-events:none;",
+    panel: "position:fixed;right:16px;bottom:16px;width:320px;padding:12px;background:rgba(255,255,255,0.97);color:#111111;border:1px solid rgba(0,0,0,0.12);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.35);font:12px/1.4 ui-sans-serif,system-ui,sans-serif;pointer-events:auto;display:none;backdrop-filter:blur(8px);",
     title: "font-weight:600;margin-bottom:8px;",
-    targetInfo: "margin-bottom:8px;color:#86efac;word-break:break-word;",
-    textarea: "width:100%;min-height:96px;resize:vertical;border-radius:10px;border:1px solid rgba(34,197,94,0.35);background:rgba(2,44,34,0.75);color:#dcfce7;padding:10px;box-sizing:border-box;",
+    targetInfo: "margin-bottom:8px;color:#6b7280;word-break:break-word;",
+    textarea: "width:100%;min-height:96px;resize:vertical;border-radius:10px;border:1px solid rgba(0,0,0,0.12);background:#ffffff;color:#111111;padding:10px;box-sizing:border-box;",
     actions: "display:flex;gap:8px;justify-content:flex-end;margin-top:10px;",
-    cancel: "padding:8px 10px;border-radius:999px;border:1px solid rgba(34,197,94,0.45);background:transparent;color:#bbf7d0;cursor:pointer;",
-    submit: "padding:8px 12px;border-radius:999px;border:0;background:#22c55e;color:#052e16;font-weight:600;cursor:pointer;",
+    cancel: "padding:8px 10px;border-radius:999px;border:1px solid rgba(0,0,0,0.12);background:transparent;color:#111111;cursor:pointer;",
+    submit: "padding:8px 12px;border-radius:999px;border:0;background:#111111;color:#ffffff;font-weight:600;cursor:pointer;",
+    finish: "padding:8px 12px;border-radius:999px;border:1px solid rgba(0,0,0,0.12);background:#e9e4ff;color:#111111;font-weight:600;cursor:pointer;",
   }
 
   const ROLE_BY_TAG = {
@@ -110,9 +111,14 @@ function annotationPickerScript(): Promise<AnnotationPickerResult> {
       style: STYLE.cancel,
       attrs: { type: "button" },
     }) as HTMLButtonElement
-    const submitButton = h("button", {
-      text: "Send",
+    const queueButton = h("button", {
+      text: "Add to queue",
       style: STYLE.submit,
+      attrs: { type: "button" },
+    }) as HTMLButtonElement
+    const finishButton = h("button", {
+      text: "Add & finish",
+      style: STYLE.finish,
       attrs: { type: "button" },
     }) as HTMLButtonElement
 
@@ -120,14 +126,14 @@ function annotationPickerScript(): Promise<AnnotationPickerResult> {
       h("div", { text: "Annotate selection", style: STYLE.title }),
       targetInfo,
       textarea,
-      h("div", { style: STYLE.actions }, [cancelButton, submitButton]),
+      h("div", { style: STYLE.actions }, [cancelButton, queueButton, finishButton]),
     ])
 
     root.appendChild(box)
     root.appendChild(panel)
     document.documentElement.appendChild(root)
 
-    return { root, box, panel, targetInfo, textarea, cancelButton, submitButton }
+    return { root, box, panel, targetInfo, textarea, cancelButton, queueButton, finishButton }
   }
 
   function updateHighlight(box: HTMLElement, el: HTMLElement | null): void {
@@ -167,14 +173,15 @@ function annotationPickerScript(): Promise<AnnotationPickerResult> {
       resolve(resultPayload)
     }
 
-    function finishWithSendAnimation(resultPayload: AnnotationPickerResult) {
+    function finishWithQueuedAnimation(resultPayload: AnnotationPickerResult) {
       if (state.finished) return
       state.finished = true
       removeListeners()
-      ui.submitButton.disabled = true
+      ui.queueButton.disabled = true
+      ui.finishButton.disabled = true
       ui.cancelButton.disabled = true
       ui.textarea.disabled = true
-      ui.submitButton.textContent = "Sending"
+      ui.queueButton.textContent = "Queued"
       ui.panel.style.transition = "transform 220ms cubic-bezier(.2,.8,.2,1), opacity 180ms ease"
       ui.box.style.transition = "opacity 160ms ease"
       requestAnimationFrame(() => {
@@ -188,13 +195,14 @@ function annotationPickerScript(): Promise<AnnotationPickerResult> {
       }, 240)
     }
 
-    function submitAnnotation() {
+    function submitAnnotation(finishMode?: boolean) {
       if (!state.selected) {
         finish({ cancelled: true })
         return
       }
-      finishWithSendAnimation({
+      finishWithQueuedAnimation({
         cancelled: false,
+        finish: finishMode === true,
         comment: ui.textarea.value.trim(),
         element: describeElement(state.selected),
         viewport: describeViewport(),
@@ -234,12 +242,13 @@ function annotationPickerScript(): Promise<AnnotationPickerResult> {
       if (state.locked && event.key === "Enter" && !event.shiftKey) {
         event.preventDefault()
         event.stopPropagation()
-        submitAnnotation()
+        submitAnnotation(false)
       }
     }
 
     ui.cancelButton.addEventListener("click", () => finish({ cancelled: true }))
-    ui.submitButton.addEventListener("click", submitAnnotation)
+    ui.queueButton.addEventListener("click", () => submitAnnotation(false))
+    ui.finishButton.addEventListener("click", () => submitAnnotation(true))
 
     document.addEventListener("mousemove", onMouseMove, true)
     document.addEventListener("click", onClick, true)
