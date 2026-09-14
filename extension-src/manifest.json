@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "OpenCode Chrome Annotation",
   "short_name": "OpenCode Annotation",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Annotate pages and send context into your local OpenCode setup",
   "homepage_url": "https://github.com/jodusnodus/opencode-chrome-annotation",
   "permissions": [
