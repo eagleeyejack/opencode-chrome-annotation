@@ -325,7 +325,7 @@ async function listOpenCodeSessions(): Promise<Array<{ id: string; title: string
     }
 
     sessions.sort((a: { updatedAt: number }, b: { updatedAt: number }) => b.updatedAt - a.updatedAt);
-    return sessions.map(({ updatedAt: _updatedAt, ...rest }: { updatedAt: number }) => rest);
+    return sessions.map(({ updatedAt: _updatedAt, ...rest }) => rest);
   } catch {
     return [fallbackSession()];
   }
