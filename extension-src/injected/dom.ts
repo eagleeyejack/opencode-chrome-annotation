@@ -95,3 +95,63 @@ globalThis.__opc_makeDockable = function makeDockable(overlay: HTMLElement, opti
   overlay.__opcDockApi = { applyDockPosition }
   return overlay.__opcDockApi
 }
+
+globalThis.__opc_cropDataUrl = function cropDataUrl(
+  dataUrl: string,
+  rect: { x?: number; y?: number; width?: number; height?: number } | null,
+  viewport: { width?: number; height?: number } | null,
+  padding?: number
+): Promise<string | null> {
+  const pad = Number.isFinite(padding) ? (padding as number) : 8
+  if (!dataUrl || !rect || !viewport) return Promise.resolve(null)
+
+  const sourceWidth = Number(viewport.width)
+  const sourceHeight = Number(viewport.height)
+  if (!Number.isFinite(sourceWidth) || !Number.isFinite(sourceHeight) || sourceWidth <= 0 || sourceHeight <= 0) {
+    return Promise.resolve(null)
+  }
+
+  return new Promise((resolve) => {
+    const image = new Image()
+    image.onload = () => {
+      try {
+        const scaleX = image.width / sourceWidth
+        const scaleY = image.height / sourceHeight
+        if (!Number.isFinite(scaleX) || !Number.isFinite(scaleY) || scaleX <= 0 || scaleY <= 0) {
+          resolve(null)
+          return
+        }
+        const rectLeft = Number(rect.x ?? rect.left ?? 0)
+        const rectTop = Number(rect.y ?? rect.top ?? 0)
+        const rectRight = rectLeft + Number(rect.width ?? 0)
+        const rectBottom = rectTop + Number(rect.height ?? 0)
+        const left = Math.max(0, Math.min(rectLeft, sourceWidth))
+        const top = Math.max(0, Math.min(rectTop, sourceHeight))
+        const right = Math.min(sourceWidth, rectRight + pad)
+        const bottom = Math.min(sourceHeight, rectBottom + pad)
+        const cropX = Math.floor(left * scaleX)
+        const cropY = Math.floor(top * scaleY)
+        const cropWidth = Math.floor((right - left) * scaleX)
+        const cropHeight = Math.floor((bottom - top) * scaleY)
+        if (cropWidth < 4 || cropHeight < 4) {
+          resolve(null)
+          return
+        }
+        const canvas = document.createElement("canvas")
+        canvas.width = cropWidth
+        canvas.height = cropHeight
+        const context = canvas.getContext("2d")
+        if (!context) {
+          resolve(null)
+          return
+        }
+        context.drawImage(image, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight)
+        resolve(canvas.toDataURL("image/png"))
+      } catch {
+        resolve(null)
+      }
+    }
+    image.onerror = () => resolve(null)
+    image.src = dataUrl
+  })
+}
