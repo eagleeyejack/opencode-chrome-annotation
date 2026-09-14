@@ -96,7 +96,11 @@ export async function requestSessionState(): Promise<SessionQueryResult> {
       if (!result.ok) continue
       const payload = result.payload
       const list = Array.isArray(payload?.sessions) ? payload.sessions : []
-      for (const item of list) sessions.push({ ...item, baseUrl: instance.baseUrl })
+      for (const item of list) {
+        if (typeof item?.id === "string" && !item.id.startsWith("plugin:")) {
+          sessions.push({ ...item, baseUrl: instance.baseUrl })
+        }
+      }
     } catch {
       // ignore dead instance
     }
