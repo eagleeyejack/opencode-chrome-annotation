@@ -557,6 +557,28 @@ async function startServer(): Promise<void> {
           return;
         }
 
+        if (req.method === "POST" && url.pathname === "/session/close") {
+          const body = await readJsonBody(req);
+          const sessionId = body?.sessionId;
+          if (typeof sessionId !== "string" || !sessionId) throw new Error("sessionId is required");
+          if (sessionId.startsWith(INSTANCE_SESSION_PREFIX)) {
+            throw new Error("Cannot close the placeholder session");
+          }
+          if (!/^[A-Za-z0-9:_-]+$/.test(sessionId)) throw new Error("Invalid sessionId");
+          if (!pluginClient?.session?.delete) throw new Error("OpenCode client is unavailable");
+          await pluginClient.session.delete({ path: { id: sessionId } });
+          sessionTitles.delete(sessionId);
+          sessionDirectories.delete(sessionId);
+          subagentSessionIds.delete(sessionId);
+          subagentChecks.delete(sessionId);
+          for (const [tabId, claim] of claims) {
+            if (claim.sessionId === sessionId) claims.delete(tabId);
+          }
+          logDebug(`session closed id=${sessionId}`);
+          json(res, 200, { ok: true, sessionId }, origin);
+          return;
+        }
+
         json(res, 404, { ok: false, error: "Not found" }, origin);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
