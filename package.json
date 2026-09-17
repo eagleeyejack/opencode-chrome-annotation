@@ -1,7 +1,7 @@
 {
-  "name": "@eagleeyejack/opencode-chrome-annotation",
+  "name": "opencode-annotate",
   "version": "1.2.0",
-  "description": "Annotate pages in Chrome and send context into your local OpenCode setup. (fork of JodusNodus/opencode-chrome-annotation, published under a scoped name)",
+  "description": "Annotate webpages in Chrome and send screenshots + element context to your OpenCode session. Fork of JodusNodus/opencode-chrome-annotation.",
   "type": "module",
   "main": "./dist/plugin.js",
   "exports": {

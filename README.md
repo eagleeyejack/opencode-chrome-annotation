@@ -1,7 +1,7 @@
 # <img src="https://raw.githubusercontent.com/jodusnodus/opencode-chrome-annotation/main/icon.svg" width="60" align="center" /> OpenCode Chrome Annotation
 
-[![version](https://img.shields.io/npm/v/@eagleeyejack/opencode-chrome-annotation?style=flat&colorA=000000&colorB=000000)](https://npmjs.com/package/@eagleeyejack/opencode-chrome-annotation)
-> Fork of [JodusNodus/opencode-chrome-annotation](https://github.com/JodusNodus/opencode-chrome-annotation), published under a scoped name. GPL-3.0.
+[![version](https://img.shields.io/npm/v/opencode-annotate?style=flat&colorA=000000&colorB=000000)](https://npmjs.com/package/opencode-annotate)
+> Fork of [JodusNodus/opencode-chrome-annotation](https://github.com/JodusNodus/opencode-chrome-annotation), published as `opencode-annotate`. GPL-3.0.
 [![license](https://img.shields.io/npm/l/opencode-chrome-annotation?style=flat&colorA=000000&colorB=000000)](https://github.com/jodusnodus/opencode-chrome-annotation/blob/main/LICENSE)
 
 Annotate any page in Chrome and send the screenshot, selected element metadata, and your instruction directly into [OpenCode](https://opencode.ai).
