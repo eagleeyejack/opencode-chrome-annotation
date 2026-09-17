@@ -1,7 +1,7 @@
 {
-  "name": "opencode-chrome-annotation",
+  "name": "@eagleeyejack/opencode-chrome-annotation",
   "version": "1.2.0",
-  "description": "Annotate pages in Chrome and send context into your local OpenCode setup.",
+  "description": "Annotate pages in Chrome and send context into your local OpenCode setup. (fork of JodusNodus/opencode-chrome-annotation, published under a scoped name)",
   "type": "module",
   "main": "./dist/plugin.js",
   "exports": {
@@ -36,7 +36,7 @@
   "license": "GPL-3.0-only",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jodusnodus/opencode-chrome-annotation.git"
+    "url": "git+https://github.com/eagleeyejack/opencode-chrome-annotation.git"
   },
   "bugs": {
     "url": "https://github.com/jodusnodus/opencode-chrome-annotation/issues"
