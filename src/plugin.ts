@@ -38,12 +38,13 @@ const subagentSessionIds = new Set<string>();
 const subagentChecks = new Map<string, boolean>();
 const claims = new Map<number, { sessionId: string; claimedAt: string; lastSeenAt: string; extensionVersion?: string }>();
 
-function fallbackSession(): { id: string; title: string; directory: string; status: string } {
+function fallbackSession(): { id: string; title: string; directory: string; status: string; updatedAt: number } {
   return {
     id: processSessionId,
     title: pluginSessionLabel,
     directory: pluginDirectory,
     status: "open",
+    updatedAt: 0,
   };
 }
 
@@ -245,7 +246,7 @@ async function ensureSessionTitle(sessionId: string): Promise<void> {
   }
 }
 
-async function listOpenCodeSessions(): Promise<Array<{ id: string; title: string; directory?: string; status: string }>> {
+async function listOpenCodeSessions(): Promise<Array<{ id: string; title: string; directory?: string; status: string; updatedAt: number }>> {
   if (!pluginClient?.session?.list) {
     return [fallbackSession()];
   }
@@ -325,7 +326,7 @@ async function listOpenCodeSessions(): Promise<Array<{ id: string; title: string
     }
 
     sessions.sort((a: { updatedAt: number }, b: { updatedAt: number }) => b.updatedAt - a.updatedAt);
-    return sessions.map(({ updatedAt: _updatedAt, ...rest }) => rest);
+    return sessions;
   } catch {
     return [fallbackSession()];
   }
@@ -554,6 +555,28 @@ async function startServer(): Promise<void> {
           if (!Number.isFinite(tabId)) throw new Error("tabId is required");
           claims.delete(Number(tabId));
           json(res, 200, { ok: true }, origin);
+          return;
+        }
+
+        if (req.method === "POST" && url.pathname === "/session/close") {
+          const body = await readJsonBody(req);
+          const sessionId = body?.sessionId;
+          if (typeof sessionId !== "string" || !sessionId) throw new Error("sessionId is required");
+          if (sessionId.startsWith(INSTANCE_SESSION_PREFIX)) {
+            throw new Error("Cannot close the placeholder session");
+          }
+          if (!/^[A-Za-z0-9:_-]+$/.test(sessionId)) throw new Error("Invalid sessionId");
+          if (!pluginClient?.session?.delete) throw new Error("OpenCode client is unavailable");
+          await pluginClient.session.delete({ path: { id: sessionId } });
+          sessionTitles.delete(sessionId);
+          sessionDirectories.delete(sessionId);
+          subagentSessionIds.delete(sessionId);
+          subagentChecks.delete(sessionId);
+          for (const [tabId, claim] of claims) {
+            if (claim.sessionId === sessionId) claims.delete(tabId);
+          }
+          logDebug(`session closed id=${sessionId}`);
+          json(res, 200, { ok: true, sessionId }, origin);
           return;
         }
 
