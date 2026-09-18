@@ -22,7 +22,7 @@ Add the plugin to your OpenCode config:
 
 Restart OpenCode. It runs a local server on `127.0.0.1` (ports `39240-39260`) that the Chrome extension discovers.
 
-Then install the Chrome extension from [eagleeyejack/opencode-chrome-annotation-extension](https://github.com/eagleeyejack/opencode-chrome-annotation-extension) (load unpacked; a Chrome Web Store listing is in review).
+Then install the Chrome extension from the [Chrome Web Store](https://chromewebstore.google.com/detail/opencode-annotate/opcdjaoejpnkalealbpjabflbejpcmjh?hl=en). The extension source lives at [eagleeyejack/opencode-chrome-annotation-extension](https://github.com/eagleeyejack/opencode-chrome-annotation-extension).
 
 ## How It Works
 

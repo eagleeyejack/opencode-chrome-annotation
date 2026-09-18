@@ -1,6 +1,6 @@
 {
   "name": "opencode-annotate",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Annotate webpages in Chrome and send screenshots + element context to your OpenCode session. Fork of JodusNodus/opencode-chrome-annotation.",
   "type": "module",
   "main": "./dist/plugin.js",
@@ -39,9 +39,9 @@
     "url": "git+https://github.com/eagleeyejack/opencode-chrome-annotation.git"
   },
   "bugs": {
-    "url": "https://github.com/jodusnodus/opencode-chrome-annotation/issues"
+    "url": "https://github.com/eagleeyejack/opencode-chrome-annotation/issues"
   },
-  "homepage": "https://github.com/jodusnodus/opencode-chrome-annotation#readme",
+  "homepage": "https://github.com/eagleeyejack/opencode-chrome-annotation#readme",
   "peerDependencies": {
     "@opencode-ai/plugin": "*"
   },
