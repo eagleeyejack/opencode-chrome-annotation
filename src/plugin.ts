@@ -373,7 +373,7 @@ function listClaims(): Array<Record<string, any>> {
     .sort((a, b) => a.tabId - b.tabId);
 }
 
-async function queueAnnotationPrompt(sessionId: string, annotation: any): Promise<void> {
+async function queueAnnotationPrompt(sessionId: string, annotation: any): Promise<string> {
   if (typeof sessionId === "string" && sessionId.startsWith(INSTANCE_SESSION_PREFIX)) {
     setLastAnnotationStatus({ ok: false, sessionId, error: "Tab is linked to a placeholder session, not a real chat" });
     throw new Error("This tab is linked to a placeholder session, not a real chat. Reconnect and pick a specific chat.");
@@ -405,6 +405,44 @@ async function queueAnnotationPrompt(sessionId: string, annotation: any): Promis
   const promptBody = { parts: [{ type: "text", text: promptText }] };
   const promptDirectory = sessionDirectories.get(sessionId) || pluginDirectory;
 
+  if (typeof pluginClient?.tui?.appendPrompt === "function") {
+    let appended: any = null;
+    let appendFailed = false;
+    let appendedData: any = null;
+    try {
+      appended = await pluginClient.tui.appendPrompt({
+        query: { directory: promptDirectory },
+        body: { text: promptText },
+      });
+      appendedData = unwrapClientResult(appended, "tui append prompt");
+    } catch {
+      appendFailed = true;
+    }
+    if (!appendFailed) {
+      if (!isExplicitFalse(appendedData)) {
+        let submittedData: any;
+        try {
+          const submitted = await pluginClient.tui.submitPrompt({ query: { directory: promptDirectory } });
+          submittedData = unwrapClientResult(submitted, "tui submit prompt");
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          setLastAnnotationStatus({ ok: false, sessionId, phase: "submit-failed", transport: "tui", error: message });
+          throw new Error(
+            `Annotation text was typed into the attached OpenCode window but automatic submit failed (${message}); press Enter in the OpenCode window to send it manually.`
+          );
+        }
+        if (isExplicitFalse(submittedData)) {
+          setLastAnnotationStatus({ ok: false, sessionId, phase: "submit-failed", transport: "tui", error: "OpenCode rejected submitting the annotation prompt" });
+          throw new Error(
+            "Annotation text was typed into the attached OpenCode window but automatic submit was rejected; press Enter in the OpenCode window to send it manually."
+          );
+        }
+        setLastAnnotationStatus({ ok: true, sessionId, transport: "tui", response: appendedData ?? null });
+        return "tui";
+      }
+    }
+  }
+
   if (typeof pluginClient?.session?.promptAsync === "function") {
     const response = await pluginClient.session.promptAsync({
       path: { id: sessionId },
@@ -414,7 +452,7 @@ async function queueAnnotationPrompt(sessionId: string, annotation: any): Promis
     const data = unwrapClientResult(response, "session prompt");
     if (isExplicitFalse(data)) throw new Error("OpenCode rejected session prompt submission");
     setLastAnnotationStatus({ ok: true, sessionId, transport: "session.promptAsync", response: data ?? null });
-    return;
+    return "session.promptAsync";
   }
 
   if (typeof pluginClient?.session?.prompt === "function") {
@@ -426,23 +464,10 @@ async function queueAnnotationPrompt(sessionId: string, annotation: any): Promis
     const data = unwrapClientResult(response, "session prompt");
     if (isExplicitFalse(data)) throw new Error("OpenCode rejected session prompt submission");
     setLastAnnotationStatus({ ok: true, sessionId, transport: "session.prompt", response: data ?? null });
-    return;
+    return "session.prompt";
   }
 
-  const text = promptText;
-
-  const appended = await pluginClient.tui.appendPrompt({
-    query: { directory: pluginDirectory },
-    body: { text },
-  });
-  const appendedData = unwrapClientResult(appended, "tui append prompt");
-  if (isExplicitFalse(appendedData)) throw new Error("OpenCode rejected appending the annotation prompt");
-
-  const submitted = await pluginClient.tui.submitPrompt({ query: { directory: pluginDirectory } });
-  const submittedData = unwrapClientResult(submitted, "tui submit prompt");
-  if (isExplicitFalse(submittedData)) throw new Error("OpenCode rejected submitting the annotation prompt");
-
-  setLastAnnotationStatus({ ok: true, sessionId, transport: "tui", response: appendedData ?? null });
+  throw new Error("No OpenCode prompt transport is available");
 }
 
 function buildStatus(): Record<string, any> {
@@ -541,8 +566,8 @@ async function startServer(): Promise<void> {
 
           rememberClaim(Number(tabId), sessionId, extensionVersion);
 
-          await queueAnnotationPrompt(sessionId, { ...annotation, tabId: Number(tabId) });
-          json(res, 200, { ok: true, sessionId }, origin);
+          const transport = await queueAnnotationPrompt(sessionId, { ...annotation, tabId: Number(tabId) });
+          json(res, 200, { ok: true, sessionId, transport }, origin);
           return;
         }
 
