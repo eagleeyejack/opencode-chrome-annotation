@@ -10,9 +10,9 @@
     "test": "node --test"
   },
   "peerDependencies": {
-    "@opencode/plugin": "2.0.16"
+    "@opencode/plugin": "^2.0.0"
   },
   "devDependencies": {
-    "@opencode/plugin": "2.0.16"
+    "@opencode/plugin": "^2.0.0"
   }
 }

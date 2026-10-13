@@ -100,8 +100,8 @@ test("V2 adapter serves sessions, submits screenshots, and restores its session 
     assert.equal(annotationResponse.headers.get("access-control-allow-origin"), null)
     assert.equal(first.prompts.length, 1)
     assert.equal(first.prompts[0].sessionID, first.sessionID)
-    assert.match(first.prompts[0].text.text, /Fix this button/)
-    assert.equal(first.prompts[0].text.files.length, 1)
+    assert.match(first.prompts[0].text, /Fix this button/)
+    assert.equal(first.prompts[0].files.length, 1)
     await firstCleanup()
 
     const second = makeContext(storage)

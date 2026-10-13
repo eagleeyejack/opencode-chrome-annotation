@@ -20,7 +20,7 @@ Register `index.js` in the V2 config used by the isolated V2 profile:
 }
 ```
 
-The V2 profile needs `@opencode/plugin` 2.0.16 available to this module. Keep
+The V2 profile needs `@opencode/plugin` ^2.0.0 available to this module. Keep
 V1 and V2 config/data directories separate; the plugin opens a localhost server
 on the same bounded port range as V1, and automatically picks a free port if
 both versions are running.

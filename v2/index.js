@@ -171,7 +171,7 @@ export default Plugin.define({
         files.push({ uri: pathToFileURL(filePath).href, name: filename })
       }
       lastAnnotation = { ok: null, sessionId: sessionID, phase: "received", time: new Date().toISOString() }
-      await ctx.session.prompt({ sessionID, text: { text, files } })
+      await ctx.session.prompt({ sessionID, text, files })
       lastAnnotation = { ok: true, sessionId: sessionID, time: new Date().toISOString() }
     }
 
