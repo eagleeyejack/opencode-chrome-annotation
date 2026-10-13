@@ -14,7 +14,7 @@ Chrome Extension <-> Local HTTP server in each OpenCode Plugin instance
 
 Components:
 
-1. **Plugin** (`src/plugin.ts`) - OpenCode plugin that serves local HTTP endpoints for status/session/claim/annotation
+1. **Plugin** (`v2/index.js`) - OpenCode 2 plugin (published as `opencode-annotate` 2.x, no build step) that serves local HTTP endpoints for status/session/claim/annotation. The OpenCode 1 plugin (`src/plugin.ts`, built with `bun run build:v1`) is the legacy `opencode-annotate@1` line
 2. **Extension** (`extension/`) - discovers plugin instances on localhost ports and sends annotation payloads
 
 ## Build & Run Commands
@@ -22,6 +22,9 @@ Components:
 ```bash
 # Install dependencies
 bun install
+
+# Test and check the OpenCode 2 plugin
+(cd v2 && node --test) && node --check v2/index.js
 
 # Validate scripts
 node --check extension/background.js

@@ -1,8 +1,11 @@
 # OpenCode v2 adapter
 
-This is a separate OpenCode **2.x** adapter. The root package and `src/plugin.ts`
-remain the OpenCode 1.x plugin; do not replace or edit that entry point when
-working on this adapter.
+This is the OpenCode **2.x** adapter, published from the repo root as
+`opencode-annotate` 2.0.0 (the package `main` and `exports` point at
+`v2/index.js`). It is plain ESM with no build step and no runtime
+dependencies. The OpenCode 1.x plugin (`src/plugin.ts`) lives on as
+`opencode-annotate@1`; do not replace or edit that entry point when working on
+this adapter.
 
 ## Install for local development
 
@@ -20,7 +23,7 @@ Register `index.js` in the V2 config used by the isolated V2 profile:
 }
 ```
 
-The V2 profile needs `@opencode/plugin` ^2.0.0 available to this module. Keep
+`@opencode/plugin` is only a dev dependency here, used by the tests. Keep
 V1 and V2 config/data directories separate; the plugin opens a localhost server
 on the same bounded port range as V1, and automatically picks a free port if
 both versions are running.

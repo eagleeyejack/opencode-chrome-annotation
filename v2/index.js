@@ -1,4 +1,3 @@
-import { Plugin } from "@opencode/plugin"
 import { randomUUID } from "node:crypto"
 import { appendFile, chmod, lstat, mkdir, readdir, stat, unlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -118,7 +117,7 @@ function annotationPrompt(annotation) {
   ].join("\n")
 }
 
-export default Plugin.define({
+export default {
   id: "opencode.chrome-annotation-v2",
   async setup(ctx) {
     const uid = typeof process.getuid === "function" ? process.getuid() : "user"
@@ -387,4 +386,4 @@ export default Plugin.define({
       return closing
     }
   },
-})
+}
