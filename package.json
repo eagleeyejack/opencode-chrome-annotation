@@ -1,27 +1,28 @@
 {
   "name": "opencode-annotate",
-  "version": "1.2.2",
-  "description": "Annotate webpages in Chrome and send screenshots + element context to your OpenCode session. Fork of JodusNodus/opencode-chrome-annotation.",
+  "version": "2.0.0",
+  "description": "Annotate webpages in Chrome and send screenshots + element context to your OpenCode 2 session. Fork of JodusNodus/opencode-chrome-annotation.",
   "type": "module",
-  "main": "./dist/plugin.js",
+  "main": "./v2/index.js",
   "exports": {
-    ".": "./dist/plugin.js",
-    "./plugin": "./dist/plugin.js"
+    ".": "./v2/index.js",
+    "./server": "./v2/index.js"
   },
   "files": [
-    "dist",
-    "README.md"
+    "v2/index.js",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
-    "build": "bun build src/plugin.ts --target=node --outfile=dist/plugin.js",
+    "build:v1": "bun build src/plugin.ts --target=node --outfile=dist/plugin.js",
     "build:extension": "node scripts/build-extension.mjs",
     "typecheck": "tsc --noEmit",
     "check:extension": "npm run build:extension && node --check extension/background.js && node --check extension/injected/dom.js && node -e \"JSON.parse(require('fs').readFileSync('extension/manifest.json','utf8'))\"",
-    "dev": "bun run build",
-    "dev:setup": "bun run build",
+    "dev": "bun run build:v1",
+    "dev:setup": "bun run build:v1",
     "build:zip": "node scripts/build-extension-zip.mjs",
     "icons:generate": "sips -s format png -z 16 16 icon.svg --out extension/icons/icon16.png && sips -s format png -z 48 48 icon.svg --out extension/icons/icon48.png && sips -s format png -z 128 128 icon.svg --out extension/icons/icon128.png",
-    "prepublishOnly": "bun run build",
+    "prepublishOnly": "cd v2 && node --test && cd .. && node --check v2/index.js",
     "publish": "node -e \"if (process.env.npm_command === 'publish') process.exit(0); require('child_process').execSync('npm publish --access public', { stdio: 'inherit' });\""
   },
   "keywords": [
@@ -42,13 +43,13 @@
     "url": "https://github.com/eagleeyejack/opencode-chrome-annotation/issues"
   },
   "homepage": "https://github.com/eagleeyejack/opencode-chrome-annotation#readme",
-  "peerDependencies": {
-    "@opencode-ai/plugin": "*"
-  },
   "devDependencies": {
     "@types/chrome": "*",
     "@opencode-ai/plugin": "*",
     "bun-types": "*",
     "typescript": "*"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }
