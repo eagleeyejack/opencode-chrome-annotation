@@ -7,11 +7,11 @@
 
 Point at what's broken in your live app. Your agent fixes it.
 
-This is the **OpenCode 2 plugin** half of the tool. Pair it with the [Chrome extension](https://github.com/eagleeyejack/opencode-chrome-annotation-extension): a side panel connects any tab to your OpenCode session, you click the broken element on the live page, write what should change, and the agent receives the cropped screenshot, the element's exact selector, and your instruction.
+This is the OpenCode plugin half of the tool, and one package works on both OpenCode 1 and OpenCode 2. Pair it with the [Chrome extension](https://github.com/eagleeyejack/opencode-chrome-annotation-extension): a side panel connects any tab to your OpenCode session, you click the broken element on the live page, write what should change, and the agent receives the cropped screenshot, the element's exact selector, and your instruction.
 
 ## Install
 
-Add the plugin to your OpenCode 2 config (`opencode.json`):
+Add the plugin to your OpenCode config (`opencode.json`). OpenCode 2 uses the `plugins` key:
 
 ```json
 {
@@ -20,16 +20,18 @@ Add the plugin to your OpenCode 2 config (`opencode.json`):
 }
 ```
 
-Restart OpenCode. It runs a local server on `127.0.0.1` (ports `39240-39260`) that the Chrome extension discovers.
-
-**On OpenCode 1?** Version 2 of this package only works with OpenCode 2. Pin the 1.x release instead, using the old `plugin` key:
+OpenCode 1 uses the `plugin` key:
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-annotate@1"]
+  "plugin": ["opencode-annotate"]
 }
 ```
+
+Restart OpenCode. It runs a local server on `127.0.0.1` (ports `39240-39260`) that the Chrome extension discovers.
+
+No version pin is needed on either. If you'd rather stay on the old OpenCode 1 build, `opencode-annotate@1` still works.
 
 Then install the Chrome extension from the [Chrome Web Store](https://chromewebstore.google.com/detail/opencode-annotate/opcdjaoejpnkalealbpjabflbejpcmjh?hl=en). The extension source lives at [eagleeyejack/opencode-chrome-annotation-extension](https://github.com/eagleeyejack/opencode-chrome-annotation-extension).
 
@@ -42,7 +44,7 @@ Then install the Chrome extension from the [Chrome Web Store](https://chromewebs
 5. Queue as many annotations as you need, then hit **Send all to OpenCode**.
 6. Your agent receives each annotation's cropped screenshot, exact selector, tag/role/ARIA metadata, and your instruction.
 
-On OpenCode 1, sessions can be closed (deleted) straight from the panel, with a two-click confirm. OpenCode 2 doesn't let plugins delete sessions, so close them in OpenCode instead.
+Sessions can be closed (deleted) straight from the panel, with a two-click confirm. This works on OpenCode 1 and on OpenCode 2.
 
 ### What Gets Sent
 
@@ -56,7 +58,7 @@ Everything travels over `127.0.0.1` (ports `39240-39260`) to your own OpenCode i
 ## What's different from upstream
 
 - **Side panel UI.** Session picker, annotate form, and queue moved out of the page into Chrome's side panel, so nothing overlays the page being annotated. Browsers without the Side Panel API fall back to the original in-page picker.
-- **Session cleanup.** On OpenCode 1, close stale sessions from the panel (`POST /session/close` via the OpenCode SDK). Not available on OpenCode 2.
+- **Session cleanup.** Close stale sessions from the panel (`POST /session/close`). Works on OpenCode 1 and 2.
 - **Session dates.** `/sessions` includes `updatedAt` so the panel shows relative last-activity time per session.
 - **Annotation queue.** Batch feedback across a page, then send everything in one click. Survives service worker restarts via `chrome.storage.session`.
 - **Element screenshots.** Each annotation crops the captured viewport to the selected element.

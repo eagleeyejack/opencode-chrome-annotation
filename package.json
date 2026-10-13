@@ -1,14 +1,16 @@
 {
   "name": "opencode-annotate",
-  "version": "2.0.0",
-  "description": "Annotate webpages in Chrome and send screenshots + element context to your OpenCode 2 session. Fork of JodusNodus/opencode-chrome-annotation.",
+  "version": "2.0.1",
+  "description": "Annotate webpages in Chrome and send screenshots + element context to your OpenCode session. Works on OpenCode 1 and OpenCode 2. Fork of JodusNodus/opencode-chrome-annotation.",
   "type": "module",
-  "main": "./v2/index.js",
+  "main": "./dist/plugin.js",
   "exports": {
-    ".": "./v2/index.js",
-    "./server": "./v2/index.js"
+    ".": "./dist/plugin.js",
+    "./server": "./server.js"
   },
   "files": [
+    "dist/plugin.js",
+    "server.js",
     "v2/index.js",
     "README.md",
     "LICENSE"
@@ -22,7 +24,7 @@
     "dev:setup": "bun run build:v1",
     "build:zip": "node scripts/build-extension-zip.mjs",
     "icons:generate": "sips -s format png -z 16 16 icon.svg --out extension/icons/icon16.png && sips -s format png -z 48 48 icon.svg --out extension/icons/icon48.png && sips -s format png -z 128 128 icon.svg --out extension/icons/icon128.png",
-    "prepublishOnly": "cd v2 && node --test && cd .. && node --check v2/index.js",
+    "prepublishOnly": "bun run build:v1 && (cd v2 && node --test) && node --check server.js && node --check v2/index.js && node --test hybrid.test.js",
     "publish": "node -e \"if (process.env.npm_command === 'publish') process.exit(0); require('child_process').execSync('npm publish --access public', { stdio: 'inherit' });\""
   },
   "keywords": [

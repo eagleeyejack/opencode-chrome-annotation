@@ -9,9 +9,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PACKAGE_JSON_PATH = join(__dirname, "..", "package.json");
 
-const BASE_DIR = getRuntimeBaseDir();
-const LOG_PATH = join(BASE_DIR, "plugin.log");
-const ANNOTATION_DIR = join(BASE_DIR, "annotations");
+// Resolved lazily: importing this module must not touch the filesystem, because
+// the hybrid entry also loads it under OpenCode 2, which never calls the plugin.
+let runtimeBaseDir: string | null = null;
+const baseDir = (): string => (runtimeBaseDir ??= getRuntimeBaseDir());
+const logPath = (): string => join(baseDir(), "plugin.log");
+const annotationDir = (): string => join(baseDir(), "annotations");
 const PORT_START = 39240;
 const PORT_END = 39260;
 const LISTEN_HOST = "127.0.0.1";
@@ -85,7 +88,7 @@ function getPackageVersion(): string {
 
 function logDebug(message: string): void {
   try {
-    appendFileSync(LOG_PATH, `[${new Date().toISOString()}] ${message}\n`, "utf8");
+    appendFileSync(logPath(), `[${new Date().toISOString()}] ${message}\n`, "utf8");
   } catch {
     // ignore
   }
@@ -393,11 +396,11 @@ async function queueAnnotationPrompt(sessionId: string, annotation: any): Promis
   let promptText = buildAnnotationPrompt(annotation);
   const screenshot = annotation?.screenshot;
   if (screenshot?.dataUrl) {
-    mkdirSync(ANNOTATION_DIR, { recursive: true });
+    mkdirSync(annotationDir(), { recursive: true });
     const { mime, bytes } = decodeDataUrl(screenshot.dataUrl);
     const ext = mime === "image/jpeg" ? "jpg" : mime === "image/webp" ? "webp" : "png";
     const stem = sanitizeFileStem(annotation?.page?.title || annotation?.element?.tag || "annotation");
-    const filePath = join(ANNOTATION_DIR, `${Date.now()}-${stem}.${ext}`);
+    const filePath = join(annotationDir(), `${Date.now()}-${stem}.${ext}`);
     writeFileSync(filePath, bytes);
     promptText += `\n\nScreenshot: ${filePath}`;
   }
@@ -486,9 +489,9 @@ function buildStatus(): Record<string, any> {
     opencodeSessionId: activeOpencodeSessionId,
     label: pluginSessionLabel,
     directory: pluginDirectory,
-    runtimeBaseDir: BASE_DIR,
-    annotationDir: ANNOTATION_DIR,
-    logPath: LOG_PATH,
+    runtimeBaseDir: baseDir(),
+    annotationDir: annotationDir(),
+    logPath: logPath(),
     server: {
       status: serverStartupStatus,
       host: LISTEN_HOST,
