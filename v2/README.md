@@ -37,8 +37,9 @@ both versions are running.
 - Screenshot attachments are written under V2's isolated runtime directory and
   passed to the selected V2 session as a local file URI.
 - The `chrome_status` tool is registered through the V2 tool transform.
-- The V2 plugin API does not expose session deletion to plugins, so
-  `/session/close` returns `501`; close that session in OpenCode instead.
+- `/session/close` deletes the session through `ctx.session.remove`. A session
+  that is already gone counts as closed. Hosts without `ctx.session.remove`
+  get a `501`.
 - The server binds only to `127.0.0.1`, and reflects CORS origins only for
   browser-extension schemes.
 

@@ -14,6 +14,7 @@ function makeContext(storageData = {}) {
   const hooks = new Map()
   const tools = new Map()
   const prompts = []
+  const removed = []
   const sessionID = "ses-v2-annotation-test"
   const ctx = {
     app: { version: "2.0.16" },
@@ -37,6 +38,10 @@ function makeContext(storageData = {}) {
         }
       },
       prompt: async (input) => { prompts.push(input); return { id: "inbox-1", sessionID: input.sessionID } },
+      remove: async (input) => {
+        removed.push(input)
+        if (missing.has(input.sessionID)) throw { _tag: "SessionNotFoundError", sessionID: input.sessionID, message: "Session not found" }
+      },
     },
     tool: {
       transform: async (callback) => {
@@ -65,7 +70,7 @@ function makeContext(storageData = {}) {
     wake = undefined
     fn?.()
   }
-  return { ctx, hooks, tools, prompts, sessionID, missing, emit }
+  return { ctx, hooks, tools, prompts, removed, sessionID, missing, emit }
 }
 
 async function withRuntime(t, run) {
@@ -155,9 +160,87 @@ test("V2 adapter serves sessions, submits screenshots, and restores its session 
   })
 })
 
-test("V2 adapter does not delete sessions from browser requests", async (t) => {
+test("V2 adapter closes sessions through ctx.session.remove", async (t) => {
+  await withRuntime(t, async () => {
+    const storage = {}
+    const { ctx, hooks, tools, removed, sessionID } = makeContext(storage)
+    const cleanup = await plugin.setup(ctx)
+    try {
+      await hooks.get("prompt")({ sessionID, prompt: { text: "start" } })
+      const status = JSON.parse((await tools.get("chrome_status").execute({}, {})).content)
+      const base = `http://127.0.0.1:${status.port}`
+      const post = (path, body) => fetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+      assert.equal((await fetch(`${base}/sessions`).then((r) => r.json())).sessions[0].id, sessionID)
+      assert.equal((await post("/claim", { tabId: 3, sessionId: sessionID })).status, 200)
+
+      const response = await post("/session/close", { sessionId: sessionID })
+      assert.equal(response.status, 200)
+      assert.deepEqual(await response.json(), { ok: true, sessionId: sessionID })
+      assert.deepEqual(removed, [{ sessionID }])
+
+      assert.deepEqual((await fetch(`${base}/sessions`).then((r) => r.json())).sessions, [])
+      const after = JSON.parse((await tools.get("chrome_status").execute({}, {})).content)
+      assert.deepEqual(after.claims, [])
+      assert.equal(after.opencodeSessionId, null)
+      assert.deepEqual(storage.sessions, [])
+    } finally {
+      await cleanup()
+    }
+  })
+})
+
+test("V2 adapter treats an already-deleted session as closed", async (t) => {
+  await withRuntime(t, async () => {
+    const { ctx, hooks, tools, removed, missing, sessionID } = makeContext()
+    const cleanup = await plugin.setup(ctx)
+    try {
+      await hooks.get("prompt")({ sessionID, prompt: { text: "start" } })
+      const status = JSON.parse((await tools.get("chrome_status").execute({}, {})).content)
+      const base = `http://127.0.0.1:${status.port}`
+      await fetch(`${base}/sessions`)
+      missing.add(sessionID)
+      for (const tag of ["SessionNotFoundError", "Session.NotFoundError"]) {
+        // OpenCode 2.0.27 throws the dotted tag; the protocol types use the undotted one.
+        ctx.session.remove = async (input) => {
+          removed.push(input)
+          throw { _tag: tag, sessionID: input.sessionID }
+        }
+        const response = await fetch(`${base}/session/close`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId: sessionID }) })
+        assert.equal(response.status, 200, tag)
+        assert.deepEqual(await response.json(), { ok: true, sessionId: sessionID })
+      }
+      assert.equal(removed.length, 2)
+    } finally {
+      await cleanup()
+    }
+  })
+})
+
+test("V2 adapter validates the close request and surfaces remove failures", async (t) => {
+  await withRuntime(t, async () => {
+    const { ctx, tools, removed } = makeContext()
+    ctx.session.remove = async (input) => { removed.push(input); throw new Error("database is locked") }
+    const cleanup = await plugin.setup(ctx)
+    try {
+      const status = JSON.parse((await tools.get("chrome_status").execute({}, {})).content)
+      const post = (body) => fetch(`http://127.0.0.1:${status.port}/session/close`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+      assert.equal((await post({})).status, 400)
+      assert.equal((await post({ sessionId: 5 })).status, 400)
+      assert.equal((await post({ sessionId: `plugin:v2:1:${status.port}` })).status, 400)
+      assert.equal(removed.length, 0)
+      const failed = await post({ sessionId: "ses-x" })
+      assert.equal(failed.status, 400)
+      assert.match((await failed.json()).error, /database is locked/)
+    } finally {
+      await cleanup()
+    }
+  })
+})
+
+test("V2 adapter keeps returning 501 when the host cannot remove sessions", async (t) => {
   await withRuntime(t, async () => {
     const { ctx, tools, sessionID } = makeContext()
+    delete ctx.session.remove
     const cleanup = await plugin.setup(ctx)
     try {
       const status = JSON.parse((await tools.get("chrome_status").execute({}, {})).content)
@@ -167,7 +250,7 @@ test("V2 adapter does not delete sessions from browser requests", async (t) => {
         body: JSON.stringify({ sessionId: sessionID }),
       })
       assert.equal(response.status, 501)
-      assert.match((await response.json()).error, /V2 does not expose session deletion/)
+      assert.equal((await response.json()).ok, false)
     } finally {
       await cleanup()
     }

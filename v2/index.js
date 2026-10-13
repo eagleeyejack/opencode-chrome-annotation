@@ -20,6 +20,12 @@ function httpError(status, message) {
   return Object.assign(new Error(message), { status })
 }
 
+// The protocol types name this error SessionNotFoundError, but OpenCode 2.0.27
+// throws it from the in-process session API as "Session.NotFoundError".
+function isSessionNotFound(error) {
+  return error?._tag === "SessionNotFoundError" || error?._tag === "Session.NotFoundError"
+}
+
 function sendJson(res, status, body, origin) {
   if (origin) res.setHeader("Access-Control-Allow-Origin", origin)
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
@@ -195,7 +201,7 @@ export default {
         return info
       } catch (error) {
         // Only a missing session is dropped; transient errors keep the cache.
-        if (error?._tag === "SessionNotFoundError" && forget(sessionID)) await persistSessions()
+        if (isSessionNotFound(error) && forget(sessionID)) await persistSessions()
       }
     }
     const listClaims = () => {
@@ -294,7 +300,21 @@ export default {
           return sendJson(res, 200, { ok: true, sessionId: sessionID }, origin)
         }
         if (req.method === "POST" && url.pathname === "/session/close") {
-          return sendJson(res, 501, { ok: false, error: "V2 does not expose session deletion to plugins; close sessions in OpenCode" }, origin)
+          const body = await readJson(req)
+          const sessionID = body.sessionId
+          if (typeof sessionID !== "string" || !sessionID || sessionID.startsWith("plugin:v2:")) throw new Error("sessionId is required")
+          if (typeof ctx.session.remove !== "function") {
+            return sendJson(res, 501, { ok: false, error: "This OpenCode version does not let plugins close sessions; close it in OpenCode" }, origin)
+          }
+          try {
+            await ctx.session.remove({ sessionID })
+          } catch (error) {
+            // Already deleted elsewhere counts as closed.
+            if (!isSessionNotFound(error)) throw error
+          }
+          forget(sessionID)
+          await persistSessions()
+          return sendJson(res, 200, { ok: true, sessionId: sessionID }, origin)
         }
         return sendJson(res, 404, { ok: false, error: "Not found" }, origin)
       } catch (error) {
