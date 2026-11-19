@@ -35,6 +35,31 @@ No version pin is needed on either. If you'd rather stay on the old OpenCode 1 b
 
 Then install the Chrome extension from the [Chrome Web Store](https://chromewebstore.google.com/detail/opencode-annotate/opcdjaoejpnkalealbpjabflbejpcmjh?hl=en). The extension source lives at [eagleeyejack/opencode-chrome-annotation-extension](https://github.com/eagleeyejack/opencode-chrome-annotation-extension).
 
+## Claude Code
+
+The same panel can send annotations to running Claude Code chats. The `opencode-annotate` package ships a small bridge that lists every live Claude Code session next to your OpenCode ones (marked with the Claude glyph) and delivers each annotation into the chat you pick through Claude Code's [cross-session messaging](https://code.claude.com/docs/en/cross-session-messaging) (Claude Code 2.1.224 or later). No OpenCode needed.
+
+Start the bridge at login (macOS):
+
+```bash
+npx opencode-annotate@latest claude-bridge --install
+```
+
+That copies the bridge to `~/Library/Application Support/opencode-annotate/`, adds `~/Library/LaunchAgents/com.opencode-annotate.claude-bridge.plist` pinned to the `node` you ran it with, and logs to `~/Library/Logs/claude-bridge.log`. Run it again after switching Node versions. Remove it with:
+
+```bash
+npx opencode-annotate@latest claude-bridge --uninstall
+```
+
+On Linux, or to try it without installing, run `npx opencode-annotate@latest claude-bridge` in a terminal and leave it open.
+
+Notes:
+
+- Only chats whose process is still running are listed. Claude Code chats can't be closed from the panel.
+- A chat that skips permission prompts (`bypassPermissions`) holds incoming messages for your approval. In a terminal you get an approve dialog; the Desktop app and VS Code can't show it and drop the message after 5 minutes. To accept annotations there, set [`crossSessionInbound`](https://code.claude.com/docs/en/settings-reference#crosssessioninbound) to `accept` (this accepts messages from all your sessions).
+- Screenshots are saved to your temp folder (kept for 7 days) and Claude gets the file path.
+- The bridge reads Claude Code's per-session messaging token from `~/.claude/sessions`, so it only reaches chats owned by your user. Like the plugin, it only answers the extension, not web pages.
+
 ## How It Works
 
 1. Start OpenCode in your project.

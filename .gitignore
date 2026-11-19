@@ -6,3 +6,6 @@ artifacts/
 dist/
 extension/
 release/
+
+# npm pack output
+*.tgz

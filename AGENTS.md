@@ -16,6 +16,7 @@ Components:
 
 1. **Plugin** - one npm package (`opencode-annotate` 2.x) that works on OpenCode 1 and 2, both serving the same local HTTP endpoints for status/session/claim/annotation. The OpenCode 2 plugin is `v2/index.js` (no build step). The OpenCode 1 plugin is `src/plugin.ts`, built with `bun run build:v1` into `dist/plugin.js`. Package `.` exports `dist/plugin.js` (a plain v1 function, for any OpenCode 1). Package `./server` exports `server.js`, a plain object `{ id, setup, server }`: OpenCode 2 reads `id` and `setup` (it rejects a function default export), recent OpenCode 1 calls `server`. Do not add extra exports to either entry: OpenCode 1 calls every export of the module it loads
 2. **Extension** (`extension/`) - discovers plugin instances on localhost ports and sends annotation payloads
+3. **Claude Code bridge** (`claude-bridge.mjs`) - standalone Node server speaking the same HTTP contract, listing live Claude Code sessions and delivering through Claude Code's cross-session socket. Shipped as the package `bin` (`npx opencode-annotate claude-bridge [--install]`); `--install` copies it to `~/Library/Application Support/opencode-annotate/` and adds a macOS LaunchAgent
 
 ## Build & Run Commands
 
@@ -25,6 +26,9 @@ bun install
 
 # Test and check the OpenCode 2 plugin
 bun run build:v1 && (cd v2 && node --test) && node --test hybrid.test.js && node --check server.js && node --check v2/index.js
+
+# Test the Claude Code bridge (fake registry + fake session socket)
+node --test claude-bridge.test.js
 
 # Validate scripts
 node --check extension/background.js
