@@ -1,44 +1,59 @@
 #!/usr/bin/env node
 // claude-bridge.mjs - exposes active Claude Code sessions to the
 // opencode-annotate Chrome extension, speaking the same HTTP contract as the
-// OpenCode plugin (see src/plugin.ts). Run alongside OpenCode:
+// OpenCode plugin (see v2/index.js).
 //
-//   node claude-bridge.mjs
+//   node claude-bridge.mjs              run in the foreground
+//   node claude-bridge.mjs --install    start at login (macOS LaunchAgent)
+//   node claude-bridge.mjs --uninstall  remove the LaunchAgent
 //
 // The extension discovers every server on 127.0.0.1:39240-39260 answering
 // /status with app "opencode-chrome-annotation", so Claude sessions appear in
-// the same side-panel picker without any extension changes.
+// the same side-panel picker as OpenCode ones.
 //
-// Sessions come from Claude Code's own registry (~/.claude/sessions/<pid>.json)
-// filtered to live processes, so only active chats are ever listed. Delivery
-// uses Claude Code's cross-session inbox socket: authenticate with the peer
-// token stored next to the registry file, then post the annotation as a user
-// message (same prompt text the OpenCode plugin composes).
+// Sessions come from Claude Code's own registry (<config>/sessions/<pid>.json)
+// filtered to live processes, so only active chats are listed. Delivery uses
+// Claude Code's cross-session inbox socket: authenticate with the peer token
+// stored next to the registry file, then post the annotation as a user message
+// (same prompt text the OpenCode plugin composes).
 import { createServer } from "node:http";
 import { createConnection } from "node:net";
-import { readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, basename } from "node:path";
+import { randomUUID } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const APP_ID = "opencode-chrome-annotation";
-const APP_VERSION = "claude-bridge/0.1.0";
+const AGENT = "claude-code";
+const APP_VERSION = "claude-bridge/0.2.0";
 const PORT_START = 39240;
 const PORT_END = 39260;
-const LISTEN_HOST = "127.0.0.1";
+const HOST = "127.0.0.1";
+const BODY_LIMIT = 10 * 1024 * 1024;
+const SCREENSHOT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const IMAGE_TYPES = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
+const LAUNCH_LABEL = "com.opencode-annotate.claude-bridge";
 
-const sessionsDir = join(process.env.HOME || "", ".claude", "sessions");
+// Claude Code honours CLAUDE_CONFIG_DIR, so the registry lives wherever it does.
+const claudeDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+const sessionsDir = join(claudeDir, "sessions");
 const annotationDir = join(tmpdir(), "claude-code-bridge", "annotations");
-const claims = new Map(); // tabId -> { sessionId, extensionVersion }
-const log = (...args) => console.error(`[claude-bridge]`, ...args);
+const log = (...args) => console.error("[claude-bridge]", ...args);
+
+function httpError(status, message) {
+  return Object.assign(new Error(message), { status });
+}
 
 function readRegistry() {
-  const out = [];
   let files;
   try {
     files = readdirSync(sessionsDir);
   } catch {
-    return out;
+    return [];
   }
+  const out = [];
   for (const file of files) {
     if (!file.endsWith(".json"))
       continue;
@@ -48,16 +63,21 @@ function readRegistry() {
     } catch {
       continue;
     }
+    // Bare-mode sessions never bind a socket, so they can't receive messages.
     if (!entry?.sessionId || !entry?.messagingSocketPath || !entry?.pid)
-      continue; // bare-mode sessions never bind a socket; skip them
+      continue;
     try {
-      process.kill(entry.pid, 0); // ESRCH when the process is gone
+      process.kill(entry.pid, 0); // throws ESRCH once the process is gone
     } catch {
       continue;
     }
     out.push(entry);
   }
   return out;
+}
+
+function findRegistryEntry(sessionId) {
+  return readRegistry().find((entry) => entry.sessionId === sessionId) || null;
 }
 
 function readPeerToken(pid) {
@@ -72,32 +92,16 @@ function readPeerToken(pid) {
 }
 
 function listSessions() {
-  return readRegistry().map((entry) => ({
-    id: entry.sessionId,
-    title: entry.name || entry.sessionId,
-    directory: entry.cwd || "",
-    updatedAt: Number(entry.updatedAt) || Date.now(),
-    status: entry.status || "idle",
-    agent: "claude-code"
-  }));
-}
-
-function decodeDataUrl(dataUrl) {
-  const match = String(dataUrl).match(/^data:([^;,]+)?;base64,(.+)$/);
-  if (!match)
-    throw new Error("Annotation screenshot must be a base64 data URL");
-  return {
-    mime: match[1] || "application/octet-stream",
-    bytes: Buffer.from(match[2], "base64")
-  };
-}
-
-function sanitizeFileStem(value) {
-  return String(value || "annotation")
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80) || "annotation";
+  return readRegistry()
+    .map((entry) => ({
+      id: entry.sessionId,
+      title: entry.name || entry.sessionId,
+      directory: entry.cwd || "",
+      updatedAt: Number(entry.updatedAt) || Number(entry.startedAt) || 0,
+      status: entry.status || "idle",
+      agent: AGENT
+    }))
+    .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 // Mirrors buildAnnotationPrompt in src/plugin.ts so Claude receives the same
@@ -132,10 +136,48 @@ function buildAnnotationPrompt(annotation) {
   ].join("\n");
 }
 
+function fileStem(value) {
+  return String(value || "annotation")
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60) || "annotation";
+}
+
+function pruneScreenshots() {
+  const cutoff = Date.now() - SCREENSHOT_MAX_AGE_MS;
+  let files;
+  try {
+    files = readdirSync(annotationDir);
+  } catch {
+    return;
+  }
+  for (const file of files) {
+    const path = join(annotationDir, file);
+    try {
+      if (statSync(path).mtimeMs < cutoff)
+        rmSync(path);
+    } catch {}
+  }
+}
+
+function saveScreenshot(annotation) {
+  const match = String(annotation.screenshot.dataUrl).match(/^data:([^;,]+);base64,(.+)$/);
+  const ext = IMAGE_TYPES[match?.[1]];
+  if (!ext)
+    throw new Error("Screenshot must be a base64 PNG, JPEG or WebP data URL");
+  mkdirSync(annotationDir, { recursive: true, mode: 0o700 });
+  pruneScreenshots();
+  const stem = fileStem(annotation.page?.title || annotation.element?.tag);
+  const path = join(annotationDir, `${Date.now()}-${randomUUID().slice(0, 8)}-${stem}.${ext}`);
+  writeFileSync(path, Buffer.from(match[2], "base64"), { mode: 0o600 });
+  return path;
+}
+
 // Claude Code cross-session inbox protocol: newline-delimited JSON over the
 // session's Unix socket. Line 1 authenticates with the session's peer token,
 // line 2 delivers the message as a user turn. The wire is silent on success -
-// there is no ack - so completing both writes is our success signal.
+// there is no ack - so completing both writes is the success signal.
 function deliverToSession(socketPath, token, text) {
   return new Promise((resolve, reject) => {
     const socket = createConnection(socketPath);
@@ -144,153 +186,282 @@ function deliverToSession(socketPath, token, text) {
       if (settled)
         return;
       settled = true;
+      clearTimeout(timer);
       socket.destroy();
-      error ? reject(error) : resolve();
+      if (error)
+        reject(error);
+      else
+        resolve();
     };
+    const timer = setTimeout(() => finish(new Error("Timed out writing to the Claude session socket")), 10000);
     socket.on("connect", () => {
       socket.write(JSON.stringify({ type: "auth", token }) + "\n");
-      socket.write(JSON.stringify({ type: "user", message: { role: "user", content: text } }) + "\n");
-      socket.end();
+      socket.end(JSON.stringify({ type: "user", message: { role: "user", content: text } }) + "\n");
     });
-    socket.on("error", finish);
+    socket.on("error", (error) => finish(new Error(`Could not reach the Claude session: ${error.message}`)));
     socket.on("close", () => finish());
-    setTimeout(() => finish(new Error("Timed out writing to the Claude session socket")), 10000).unref();
   });
 }
 
-function json(res, status, body) {
-  res.writeHead(status, {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS"
-  });
+function sendJson(res, status, body, origin) {
+  if (origin)
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "content-type");
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.statusCode = status;
   res.end(JSON.stringify(body));
 }
 
-async function readJsonBody(req) {
-  const chunks = [];
-  for await (const chunk of req)
-    chunks.push(chunk);
-  if (!chunks.length)
-    return {};
+function extensionOrigin(req) {
+  const origin = req.headers?.origin;
+  return typeof origin === "string" && /^(chrome|moz)-extension:\/\//.test(origin) ? origin : undefined;
+}
+
+// Listeners rather than for-await: breaking out of an async iterator destroys
+// the socket, and the 413 response would never reach the extension.
+function readJson(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    const finish = (settle, value) => {
+      req.off("data", onData);
+      req.off("end", onEnd);
+      req.off("error", onError);
+      settle(value);
+    };
+    const onData = (chunk) => {
+      size += chunk.byteLength;
+      if (size > BODY_LIMIT) {
+        chunks.length = 0;
+        finish(reject, httpError(413, "Request body too large"));
+        return;
+      }
+      chunks.push(chunk);
+    };
+    const onEnd = () => {
+      if (!chunks.length) {
+        finish(resolve, {});
+        return;
+      }
+      let value;
+      try {
+        value = JSON.parse(Buffer.concat(chunks).toString("utf-8"));
+      } catch {
+        finish(reject, new Error("Request body must be valid JSON"));
+        return;
+      }
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        finish(reject, new Error("Request body must be a JSON object"));
+        return;
+      }
+      finish(resolve, value);
+    };
+    const onError = (error) => finish(reject, error);
+    req.on("data", onData);
+    req.on("end", onEnd);
+    req.on("error", onError);
+  });
+}
+
+function isTabId(value) {
+  return Number.isInteger(value) && value >= 0;
+}
+
+async function handleAnnotation(body) {
+  const { tabId, sessionId, annotation } = body;
+  if (!isTabId(tabId) || typeof sessionId !== "string" || !sessionId)
+    throw new Error("tabId and sessionId are required");
+  if (!annotation || typeof annotation !== "object")
+    throw new Error("annotation is required");
+  const entry = findRegistryEntry(sessionId);
+  if (!entry)
+    throw new Error("That Claude Code chat is no longer active. Pick a running chat and try again.");
+  const token = readPeerToken(entry.pid);
+  if (!token)
+    throw new Error("Could not read the Claude session's messaging token");
+  let text = buildAnnotationPrompt(annotation);
+  if (annotation.screenshot?.dataUrl)
+    text += `\n\nScreenshot: ${saveScreenshot(annotation)}`;
+  await deliverToSession(entry.messagingSocketPath, token, text);
+  log(`annotation delivered sessionId=${sessionId} tabId=${tabId}`);
+}
+
+function createBridgeServer(getPort) {
+  return createServer(async (req, res) => {
+    // Same guards as the OpenCode plugin: only the extension (or a local CLI
+    // with no Origin) may talk to us, and the Host must be loopback, so web
+    // pages can't read chats or inject prompts, even via DNS rebinding.
+    const origin = extensionOrigin(req);
+    if (req.headers.origin !== undefined && !origin) {
+      req.resume();
+      return sendJson(res, 403, { ok: false, error: "Forbidden origin" });
+    }
+    const port = getPort();
+    const host = String(req.headers.host || "").toLowerCase();
+    if (host !== `127.0.0.1:${port}` && host !== `localhost:${port}`) {
+      req.resume();
+      return sendJson(res, 403, { ok: false, error: "Forbidden host" });
+    }
+    if (req.method === "OPTIONS")
+      return sendJson(res, 200, { ok: true }, origin);
+    if (req.method === "POST" && !/^application\/json/i.test(String(req.headers["content-type"] || ""))) {
+      req.resume();
+      return sendJson(res, 415, { ok: false, error: "Content-Type must be application/json" }, origin);
+    }
+    const url = new URL(req.url || "/", `http://${HOST}:${port}`);
+    try {
+      if (req.method === "GET" && url.pathname === "/status") {
+        return sendJson(res, 200, { app: APP_ID, agent: AGENT, version: APP_VERSION, port, pid: process.pid, sessionsDir }, origin);
+      }
+      if (req.method === "GET" && url.pathname === "/sessions")
+        return sendJson(res, 200, { sessions: listSessions() }, origin);
+      if (req.method === "POST" && url.pathname === "/claim") {
+        const body = await readJson(req);
+        if (!isTabId(body.tabId) || typeof body.sessionId !== "string" || !body.sessionId)
+          throw new Error("tabId and sessionId are required");
+        if (!findRegistryEntry(body.sessionId))
+          throw new Error("That Claude Code chat is no longer active. Pick a running chat and try again.");
+        return sendJson(res, 200, { ok: true, sessionId: body.sessionId }, origin);
+      }
+      if (req.method === "POST" && url.pathname === "/unclaim") {
+        await readJson(req);
+        return sendJson(res, 200, { ok: true }, origin);
+      }
+      if (req.method === "POST" && url.pathname === "/annotation") {
+        const body = await readJson(req);
+        await handleAnnotation(body);
+        return sendJson(res, 200, { ok: true, sessionId: body.sessionId, transport: "cross-session-socket" }, origin);
+      }
+      if (req.method === "POST" && url.pathname === "/session/close")
+        throw httpError(501, "Closing Claude Code chats from the side panel is not supported. Stop the session in your terminal.");
+      return sendJson(res, 404, { ok: false, error: "Not found" }, origin);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const status = error?.status || 400;
+      log(`request failed path=${url.pathname} status=${status} error=${message}`);
+      if (status === 413) {
+        res.setHeader("Connection", "close");
+        req.resume();
+      }
+      return sendJson(res, status, { ok: false, error: message }, origin);
+    }
+  });
+}
+
+async function probeStatus(port) {
   try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf-8"));
+    const response = await fetch(`http://${HOST}:${port}/status`, { signal: AbortSignal.timeout(500) });
+    return await response.json();
   } catch {
-    throw new Error("Request body must be valid JSON");
+    return null;
   }
 }
 
-function findRegistryEntry(sessionId) {
-  return readRegistry().find((entry) => entry.sessionId === sessionId) || null;
+// launchd plus a manual run would otherwise list every chat twice.
+async function findRunningBridge() {
+  const ports = [];
+  for (let port = PORT_START; port <= PORT_END; port++)
+    ports.push(port);
+  const statuses = await Promise.all(ports.map(probeStatus));
+  return statuses.find((status) => status?.app === APP_ID && status?.agent === AGENT && status?.sessionsDir === sessionsDir) || null;
 }
 
-const server = createServer(async (req, res) => {
-  if (req.method === "OPTIONS") {
-    json(res, 204, {});
+async function start() {
+  const running = await findRunningBridge();
+  if (running) {
+    log(`already running on ${HOST}:${running.port} (pid ${running.pid}); exiting`);
     return;
   }
-  const url = new URL(req.url || "/", `http://${LISTEN_HOST}`);
-  try {
-    if (req.method === "GET" && url.pathname === "/status") {
-      json(res, 200, {
-        app: APP_ID,
-        agent: "claude-code",
-        version: APP_VERSION,
-        port: server.address()?.port,
-        pid: process.pid
-      });
+  let boundPort = 0;
+  const server = createBridgeServer(() => boundPort);
+  for (let port = PORT_START; port <= PORT_END; port++) {
+    const bound = await new Promise((resolve) => {
+      server.once("error", () => resolve(false));
+      server.listen(port, HOST, () => resolve(true));
+    });
+    if (bound) {
+      boundPort = port;
+      log(`listening on ${HOST}:${port}, reading ${sessionsDir}`);
       return;
     }
-
-    if (req.method === "GET" && url.pathname === "/sessions") {
-      json(res, 200, { sessions: listSessions() });
-      return;
-    }
-
-    if (req.method === "POST" && url.pathname === "/claim") {
-      const body = await readJsonBody(req);
-      const tabId = body?.tabId;
-      const sessionId = body?.sessionId;
-      if (!Number.isFinite(tabId))
-        throw new Error("tabId is required");
-      if (typeof sessionId !== "string" || !sessionId)
-        throw new Error("sessionId is required");
-      if (!findRegistryEntry(sessionId))
-        throw new Error("No active Claude Code session with that id. Open or pick a running chat.");
-      claims.set(tabId, { sessionId, extensionVersion: body?.extensionVersion });
-      json(res, 200, { ok: true, sessionId });
-      return;
-    }
-
-    if (req.method === "POST" && url.pathname === "/unclaim") {
-      const body = await readJsonBody(req);
-      if (Number.isFinite(body?.tabId))
-        claims.delete(body.tabId);
-      json(res, 200, { ok: true });
-      return;
-    }
-
-    if (req.method === "POST" && url.pathname === "/annotation") {
-      const body = await readJsonBody(req);
-      const tabId = body?.tabId;
-      const sessionId = body?.sessionId;
-      const annotation = body?.annotation;
-      if (!Number.isFinite(tabId))
-        throw new Error("tabId is required");
-      if (typeof sessionId !== "string" || !sessionId)
-        throw new Error("sessionId is required");
-      if (!annotation || typeof annotation !== "object")
-        throw new Error("annotation is required");
-
-      claims.set(tabId, { sessionId, extensionVersion: body?.extensionVersion });
-
-      let promptText = buildAnnotationPrompt(annotation);
-      const screenshot = annotation?.screenshot;
-      if (screenshot?.dataUrl) {
-        mkdirSync(annotationDir, { recursive: true });
-        const { mime, bytes } = decodeDataUrl(screenshot.dataUrl);
-        const ext = mime === "image/jpeg" ? "jpg" : mime === "image/webp" ? "webp" : "png";
-        const stem = sanitizeFileStem(annotation?.page?.title || annotation?.element?.tag || "annotation");
-        const filePath = join(annotationDir, `${Date.now()}-${stem}.${ext}`);
-        writeFileSync(filePath, bytes);
-        promptText += `\n\nScreenshot: ${filePath}`;
-      }
-
-      const entry = findRegistryEntry(sessionId);
-      if (!entry)
-        throw new Error("That Claude Code chat is no longer active. Pick a running chat and try again.");
-      const token = readPeerToken(entry.pid);
-      if (!token)
-        throw new Error("Could not read the Claude session's messaging token");
-
-      await deliverToSession(entry.messagingSocketPath, token, promptText);
-      log(`annotation delivered sessionId=${sessionId} tabId=${tabId}`);
-      json(res, 200, { ok: true, sessionId, transport: "cross-session-socket" });
-      return;
-    }
-
-    if (req.method === "POST" && url.pathname === "/session/close") {
-      throw new Error("Closing Claude Code chats from the side panel is not supported. Stop the session in your terminal.");
-    }
-
-    json(res, 404, { ok: false, error: "Not found" });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    log(`http error path=${url.pathname} error=${message}`);
-    json(res, 400, { ok: false, error: message });
   }
-});
-
-for (let port = PORT_START; port <= PORT_END; port++) {
-  const bound = await new Promise((resolve) => {
-    server.once("error", () => resolve(false));
-    server.listen(port, LISTEN_HOST, () => resolve(true));
-  });
-  if (bound) {
-    log(`listening on ${LISTEN_HOST}:${port}`);
-    break;
-  }
-}
-if (!server.listening)
   throw new Error(`All ports ${PORT_START}-${PORT_END} are busy`);
+}
+
+function launchAgentPath() {
+  return join(homedir(), "Library", "LaunchAgents", `${LAUNCH_LABEL}.plist`);
+}
+
+function xml(value) {
+  return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function launchctl(args) {
+  return spawnSync("launchctl", args, { encoding: "utf-8" });
+}
+
+function install() {
+  if (process.platform !== "darwin")
+    throw new Error("--install sets up a macOS LaunchAgent. On other systems, run node claude-bridge.mjs from your login scripts.");
+  const plistPath = launchAgentPath();
+  const logPath = join(homedir(), "Library", "Logs", "claude-bridge.log");
+  // launchd has no shell PATH (nvm, Homebrew), so pin the node binary running us.
+  const args = [process.execPath, fileURLToPath(import.meta.url)];
+  const env = process.env.CLAUDE_CONFIG_DIR
+    ? `  <key>EnvironmentVariables</key>\n  <dict>\n    <key>CLAUDE_CONFIG_DIR</key>\n    <string>${xml(process.env.CLAUDE_CONFIG_DIR)}</string>\n  </dict>\n`
+    : "";
+  const plist = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${LAUNCH_LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+${args.map((arg) => `    <string>${xml(arg)}</string>`).join("\n")}
+  </array>
+${env}  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>StandardErrorPath</key>
+  <string>${xml(logPath)}</string>
+  <key>StandardOutPath</key>
+  <string>${xml(logPath)}</string>
+</dict>
+</plist>
+`;
+  mkdirSync(join(homedir(), "Library", "LaunchAgents"), { recursive: true });
+  writeFileSync(plistPath, plist);
+  const domain = `gui/${process.getuid()}`;
+  launchctl(["bootout", `${domain}/${LAUNCH_LABEL}`]); // fails harmlessly when not loaded
+  const result = launchctl(["bootstrap", domain, plistPath]);
+  if (result.status !== 0)
+    throw new Error(`launchctl bootstrap failed: ${(result.stderr || result.stdout).trim()}`);
+  console.log(`Installed ${plistPath}`);
+  console.log(`The bridge now starts at login. Log: ${logPath}`);
+  console.log("Remove it with: node claude-bridge.mjs --uninstall");
+}
+
+function uninstall() {
+  const plistPath = launchAgentPath();
+  launchctl(["bootout", `gui/${process.getuid()}/${LAUNCH_LABEL}`]);
+  rmSync(plistPath, { force: true });
+  console.log(`Removed ${plistPath}`);
+}
+
+const command = process.argv[2];
+if (command === "--install")
+  install();
+else if (command === "--uninstall")
+  uninstall();
+else if (command === undefined)
+  await start();
+else {
+  console.error("Usage: node claude-bridge.mjs [--install | --uninstall]");
+  process.exit(2);
+}

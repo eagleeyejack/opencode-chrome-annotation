@@ -35,6 +35,24 @@ No version pin is needed on either. If you'd rather stay on the old OpenCode 1 b
 
 Then install the Chrome extension from the [Chrome Web Store](https://chromewebstore.google.com/detail/opencode-annotate/opcdjaoejpnkalealbpjabflbejpcmjh?hl=en). The extension source lives at [eagleeyejack/opencode-chrome-annotation-extension](https://github.com/eagleeyejack/opencode-chrome-annotation-extension).
 
+## Claude Code
+
+The same panel can send annotations to running Claude Code chats through `claude-bridge.mjs`, a small Node server in this repo with no dependencies. It lists every live Claude Code session next to your OpenCode ones (marked with the Claude glyph) and delivers each annotation as a message into the chat you pick, using Claude Code's cross-session messaging (Claude Code 2.1.224 or later).
+
+Clone this repo, then start the bridge at login (macOS):
+
+```bash
+node claude-bridge.mjs --install
+```
+
+That writes `~/Library/LaunchAgents/com.opencode-annotate.claude-bridge.plist` pointing at this checkout and the `node` you ran it with, and logs to `~/Library/Logs/claude-bridge.log`. Run `node claude-bridge.mjs` instead to try it in the foreground, and `node claude-bridge.mjs --uninstall` to remove it. If you move the checkout or switch Node versions, run `--install` again.
+
+Notes:
+
+- Only chats whose process is still running are listed. Claude Code chats can't be closed from the panel.
+- Screenshots are saved to your temp folder (kept for 7 days) and Claude gets the file path.
+- The bridge reads Claude Code's per-session messaging token from `~/.claude/sessions`, so it can only reach chats owned by your user. Like the plugin, it only answers the extension, not web pages.
+
 ## How It Works
 
 1. Start OpenCode in your project.
