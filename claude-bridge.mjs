@@ -3,9 +3,11 @@
 // opencode-annotate Chrome extension, speaking the same HTTP contract as the
 // OpenCode plugin (see v2/index.js).
 //
-//   node claude-bridge.mjs              run in the foreground
-//   node claude-bridge.mjs --install    start at login (macOS LaunchAgent)
-//   node claude-bridge.mjs --uninstall  remove the LaunchAgent
+//   npx opencode-annotate@latest claude-bridge --install    start at login (macOS)
+//   npx opencode-annotate@latest claude-bridge --uninstall  remove it again
+//   npx opencode-annotate@latest claude-bridge              run in the foreground
+//
+// From a checkout, `node claude-bridge.mjs [--install | --uninstall]` does the same.
 //
 // The extension discovers every server on 127.0.0.1:39240-39260 answering
 // /status with app "opencode-chrome-annotation", so Claude sessions appear in
@@ -20,9 +22,9 @@ import { createServer } from "node:http";
 import { createConnection } from "node:net";
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const APP_ID = "opencode-chrome-annotation";
@@ -393,6 +395,12 @@ function launchAgentPath() {
   return join(homedir(), "Library", "LaunchAgents", `${LAUNCH_LABEL}.plist`);
 }
 
+// npx runs us from a cache folder npm may clear, so the LaunchAgent runs a
+// copy kept here instead. The bridge is one file with no dependencies.
+function installedScriptPath() {
+  return join(homedir(), "Library", "Application Support", "opencode-annotate", "claude-bridge.mjs");
+}
+
 function xml(value) {
   return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -405,11 +413,14 @@ function launchctl(args) {
 
 async function install() {
   if (process.platform !== "darwin")
-    throw new Error("--install sets up a macOS LaunchAgent. On other systems, run node claude-bridge.mjs from your login scripts.");
+    throw new Error("--install sets up a macOS LaunchAgent. On other systems, run `npx opencode-annotate@latest claude-bridge` from your login scripts.");
   const plistPath = launchAgentPath();
   const logPath = join(homedir(), "Library", "Logs", "claude-bridge.log");
+  const scriptPath = installedScriptPath();
+  mkdirSync(dirname(scriptPath), { recursive: true });
+  copyFileSync(fileURLToPath(import.meta.url), scriptPath);
   // launchd has no shell PATH (nvm, Homebrew), so pin the node binary running us.
-  const args = [process.execPath, fileURLToPath(import.meta.url)];
+  const args = [process.execPath, scriptPath];
   let env = "";
   if (process.env.CLAUDE_CONFIG_DIR)
     env = `  <key>EnvironmentVariables</key>\n  <dict>\n    <key>CLAUDE_CONFIG_DIR</key>\n    <string>${xml(process.env.CLAUDE_CONFIG_DIR)}</string>\n  </dict>\n`;
@@ -454,18 +465,25 @@ ${env}  <key>RunAtLoad</key>
   if (result.status !== 0)
     throw new Error(`launchctl bootstrap failed: ${(result.stderr || result.stdout).trim()}`);
   console.log(`Installed ${plistPath}`);
+  console.log(`Runs ${scriptPath} with ${process.execPath}`);
   console.log(`The bridge now starts at login. Log: ${logPath}`);
-  console.log("Remove it with: node claude-bridge.mjs --uninstall");
+  console.log("Remove it with: npx opencode-annotate@latest claude-bridge --uninstall");
 }
 
 function uninstall() {
   const plistPath = launchAgentPath();
   launchctl(["bootout", `gui/${process.getuid()}/${LAUNCH_LABEL}`]);
   rmSync(plistPath, { force: true });
-  console.log(`Removed ${plistPath}`);
+  rmSync(installedScriptPath(), { force: true });
+  console.log(`Removed ${plistPath} and the installed bridge`);
 }
 
-const command = process.argv[2];
+// Accept both `claude-bridge.mjs --install` and the package bin form
+// `opencode-annotate claude-bridge --install`.
+const args = process.argv.slice(2);
+if (args[0] === "claude-bridge")
+  args.shift();
+const command = args[0];
 if (command === "--install")
   await install();
 else if (command === "--uninstall")
@@ -473,6 +491,6 @@ else if (command === "--uninstall")
 else if (command === undefined)
   await start();
 else {
-  console.error("Usage: node claude-bridge.mjs [--install | --uninstall]");
+  console.error("Usage: opencode-annotate claude-bridge [--install | --uninstall]");
   process.exit(2);
 }
