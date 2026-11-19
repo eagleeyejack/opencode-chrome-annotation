@@ -408,9 +408,9 @@ function install() {
   const logPath = join(homedir(), "Library", "Logs", "claude-bridge.log");
   // launchd has no shell PATH (nvm, Homebrew), so pin the node binary running us.
   const args = [process.execPath, fileURLToPath(import.meta.url)];
-  const env = process.env.CLAUDE_CONFIG_DIR
-    ? `  <key>EnvironmentVariables</key>\n  <dict>\n    <key>CLAUDE_CONFIG_DIR</key>\n    <string>${xml(process.env.CLAUDE_CONFIG_DIR)}</string>\n  </dict>\n`
-    : "";
+  let env = "";
+  if (process.env.CLAUDE_CONFIG_DIR)
+    env = `  <key>EnvironmentVariables</key>\n  <dict>\n    <key>CLAUDE_CONFIG_DIR</key>\n    <string>${xml(process.env.CLAUDE_CONFIG_DIR)}</string>\n  </dict>\n`;
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
