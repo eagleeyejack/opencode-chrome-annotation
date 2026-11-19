@@ -5,7 +5,7 @@
   "type": "module",
   "main": "./dist/plugin.js",
   "bin": {
-    "opencode-annotate": "./claude-bridge.mjs"
+    "opencode-annotate": "claude-bridge.mjs"
   },
   "exports": {
     ".": "./dist/plugin.js",
