@@ -397,11 +397,13 @@ function xml(value) {
   return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 function launchctl(args) {
   return spawnSync("launchctl", args, { encoding: "utf-8" });
 }
 
-function install() {
+async function install() {
   if (process.platform !== "darwin")
     throw new Error("--install sets up a macOS LaunchAgent. On other systems, run node claude-bridge.mjs from your login scripts.");
   const plistPath = launchAgentPath();
@@ -438,8 +440,17 @@ ${env}  <key>RunAtLoad</key>
   mkdirSync(join(homedir(), "Library", "LaunchAgents"), { recursive: true });
   writeFileSync(plistPath, plist);
   const domain = `gui/${process.getuid()}`;
-  launchctl(["bootout", `${domain}/${LAUNCH_LABEL}`]); // fails harmlessly when not loaded
-  const result = launchctl(["bootstrap", domain, plistPath]);
+  const service = `${domain}/${LAUNCH_LABEL}`;
+  launchctl(["bootout", service]); // fails harmlessly when not loaded
+  // bootout returns before the old job is gone; bootstrapping too soon fails
+  // with "5: Input/output error", so wait for it to unload, then retry.
+  for (let i = 0; i < 50 && launchctl(["print", service]).status === 0; i++)
+    await sleep(100);
+  let result = launchctl(["bootstrap", domain, plistPath]);
+  for (let attempt = 0; attempt < 5 && result.status !== 0; attempt++) {
+    await sleep(500);
+    result = launchctl(["bootstrap", domain, plistPath]);
+  }
   if (result.status !== 0)
     throw new Error(`launchctl bootstrap failed: ${(result.stderr || result.stdout).trim()}`);
   console.log(`Installed ${plistPath}`);
@@ -456,7 +467,7 @@ function uninstall() {
 
 const command = process.argv[2];
 if (command === "--install")
-  install();
+  await install();
 else if (command === "--uninstall")
   uninstall();
 else if (command === undefined)
