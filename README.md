@@ -11,6 +11,30 @@ This is the OpenCode plugin half of the tool, and one package works on both Open
 
 ## Install
 
+### Paste this into your agent
+
+Install the [Chrome extension](https://chromewebstore.google.com/detail/opencode-annotate/opcdjaoejpnkalealbpjabflbejpcmjh?hl=en), then paste this into OpenCode or Claude Code and it sets up its own side:
+
+```text
+Set up opencode-annotate so the opencode-annotate Chrome extension can send annotations to you.
+
+If you are OpenCode:
+1. Run `opencode --version` to see if this is OpenCode 1 or 2.
+2. Add "opencode-annotate" to my global OpenCode config (~/.config/opencode/opencode.json, create it if missing). OpenCode 2 uses the "plugins" key, OpenCode 1 uses "plugin". Keep any entries already there.
+3. Tell me to restart OpenCode.
+
+If you are Claude Code:
+1. On macOS, run `npx opencode-annotate@latest claude-bridge --install`. It starts the bridge now and at every login.
+2. On Linux, tell me to run `npx opencode-annotate@latest claude-bridge` in a terminal and leave it open.
+3. Check the bridge answers `/status` on 127.0.0.1, on a port from 39240 to 39260.
+
+Then tell me to press Try again in the extension's side panel.
+```
+
+The extension's side panel has a **Copy setup prompt** button with the same text.
+
+### Or set it up by hand
+
 Add the plugin to your OpenCode config (`opencode.json`). OpenCode 2 uses the `plugins` key:
 
 ```json
